@@ -14,7 +14,7 @@ bash Install-ASURT.sh
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-ASURT.ps1
 ```
 
-The release installers default to `asurt-fsai/Simulation-27`. GitHub CLI sign-in gives the installer and System Manager access to the release and optional map catalog. Linux installs under `~/.local/share/asurt`. Windows stores the native simulator under `%LOCALAPPDATA%\ASURT` and the WSLg runtime, ROS stack and tools under the Linux user’s installation directory.
+The release installers default to `asurt-fsai/Simulation-27` and use public HTTPS for release files and the optional map catalog. The bundled System Manager checks the same public URLs. Installers configured for a private fork use GitHub CLI sign-in. Linux installs under `~/.local/share/asurt`. Windows stores the native simulator under `%LOCALAPPDATA%\ASURT` and the WSLg runtime, ROS stack and tools under the Linux user’s installation directory.
 
 If a CUDA-capable NVIDIA GPU is available, the installer downloads a pinned CUDA 12.8 and cuDNN 9.8 runtime plus ONNX Runtime GPU. Both YOLO26 and the deep-learning planner use CUDA. The installer runs both models and verifies that operators ran on the GPU. The first GPU installation downloads about 1.94 GB of additional wheels. Reruns reuse the installed CUDA runtime while the requirements stay the same. An existing local CUDA runtime can also be reused when the previous installation has matching requirements, the expected ONNX Runtime version, and both models pass GPU verification. If a wheel download fails, rerun the installer to reuse completed downloads.
 

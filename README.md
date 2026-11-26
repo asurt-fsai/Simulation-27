@@ -21,7 +21,7 @@ On **Ubuntu 22.04 x86-64**, run the release copy of `Install-ASURT.sh`.
 bash Install-ASURT.sh
 ```
 
-Use a GitHub account with access to `asurt-fsai/Simulation-27` when the installer opens GitHub sign-in. The installer verifies the release downloads and offers compatible optional maps on reruns.
+The Simulation-27 installer downloads the public release over HTTPS without a GitHub sign-in. It verifies the release files and offers compatible optional maps on reruns.
 
 ## Run and update CARLA
 
@@ -46,7 +46,9 @@ bash Install-ASURT.sh --maps all
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-ASURT.ps1 -Maps all
 ```
 
-The packaged System Manager checks `asurt-fsai/Simulation-27` for new releases and compatible maps each time it opens. On Windows and Ubuntu, accepting the prompt closes the managed ASURT simulator and tools, then opens the installer in a terminal with all compatible maps selected. Declining dismisses the prompt until the next time System Manager opens. Existing ASURTSIM installations can accept the transition update in System Manager or run the Simulation-27 installer directly.
+Starting with v0.1.26-flat, System Manager checks `asurt-fsai/Simulation-27` for new releases and compatible maps each time it opens, without a GitHub sign-in. On Windows and Ubuntu, accepting the prompt closes the managed ASURT simulator and tools, then opens the installer in a terminal with all compatible maps selected. Declining dismisses the prompt until the next time System Manager opens.
+
+Older installations can accept the transition update if their existing GitHub credentials still work. If System Manager offers no update, run the latest Simulation-27 installer once to switch the installation to public updates.
 
 ## Edit team modules and tools
 

@@ -1,6 +1,7 @@
 """Exercise the System Manager update check and installer handoff."""
 
 import hashlib
+from io import StringIO
 import json
 from pathlib import Path
 import subprocess
@@ -25,10 +26,11 @@ class ReleaseUpdateTest(unittest.TestCase):
 
     def test_transition_install_records_production_for_future_downloads(self):
         args = SimpleNamespace(github_cli=True, platform="linux", with_wsl_runtime=False,
-                               repository="HassanRadwannn/ASURTSIM", branch="old", catalog=None)
-        manifest = {"repository": "asurt-fsai/Simulation-27", "tag": "v0.1.25-flat",
+                               repository="HassanRadwannn/ASURTSIM", branch="old", catalog=None, manifest=None)
+        manifest = {"repository": "asurt-fsai/Simulation-27", "tag": "v0.1.26-flat",
                     "runtime": {"linux": {"shipping_sha256": "linux-target"}}}
         select_release_repository(args, manifest)
+        self.assertFalse(args.github_cli)
         record_release(self.state, args, manifest)
         installed = json.loads((self.state / update.RECEIPT).read_text())
         self.assertEqual(installed["repository"], "asurt-fsai/Simulation-27")
@@ -42,20 +44,32 @@ class ReleaseUpdateTest(unittest.TestCase):
             "linux": {"shipping_sha256": "linux-target"},
         }})
 
-        def fetch(command, **_):
-            self.assertEqual(command[command.index("--repo")+1], "asurt-fsai/Simulation-27")
-            Path(command[-1], "asurt-release.json").write_text(json.dumps({
-                "format": 1, "tag": "v0.1.25-flat", "runtime": {
+        urls = {
+            "https://github.com/asurt-fsai/Simulation-27/releases/latest/download/asurt-release.json": {
+                "format": 1, "tag": "v0.1.26-flat", "runtime": {
                     "linux": {"shipping_sha256": "linux-target"},
-                },
-            }))
+                }},
+            "https://raw.githubusercontent.com/asurt-fsai/Simulation-27/main/asurt-maps.json": {
+                "format": 1, "maps": [{"id": "optional", "label": "Optional",
+                                       "base_sha256": {"LinuxNoEditor": "linux-target"}}]},
+        }
+        with patch("release_update.urlopen", side_effect=lambda url, **_: StringIO(json.dumps(urls[url]))), \
+             patch("release_update.subprocess.run") as download, \
+             patch("release_update.subprocess.check_output") as command:
+            self.assertEqual(update.check_updates(self.state), ("v0.1.26-flat", ["Optional"]))
+            download.assert_not_called()
+            command.assert_not_called()
 
-        with patch("release_update.subprocess.run", side_effect=fetch), \
-             patch("release_update.subprocess.check_output",
-                   return_value=json.dumps({"format": 1, "maps": []})) as catalog:
-            self.assertEqual(update.check_updates(self.state), ("v0.1.25-flat", []))
-            self.assertIn("repos/asurt-fsai/Simulation-27/contents/asurt-maps.json?ref=main",
-                          catalog.call_args.args[0])
+    def test_public_installer_records_receipt_and_offline_manifest_stays_offline(self):
+        args = SimpleNamespace(github_cli=False, platform="linux", with_wsl_runtime=False,
+                               repository="asurt-fsai/Simulation-27", branch="main", catalog=None,
+                               manifest="https://github.com/asurt-fsai/Simulation-27/releases/latest/download/asurt-release.json")
+        payload = {"tag": "v0.1.26-flat", "runtime": {"linux": {"shipping_sha256": "linux-target"}}}
+        record_release(self.state, args, payload)
+        self.assertEqual(update.receipt(self.state)["repository"], args.repository)
+        args.manifest = str(self.root / "asurt-release.json")
+        record_release(self.state, args, payload)
+        self.assertIsNone(update.receipt(self.state))
 
     def test_newer_release_uses_target_compatible_maps(self):
         options = SimpleNamespace(github_cli=True, platform="windows", with_wsl_runtime=True,

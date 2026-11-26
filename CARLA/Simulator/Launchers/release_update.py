@@ -69,16 +69,22 @@ def check_updates(state):
     if not installed:
         return None
     repo = installed["repository"]
+    production = repo.casefold() == PRODUCTION_REPOSITORY.casefold()
     environment = dict(os.environ, GH_PROMPT_DISABLED="1", GIT_TERMINAL_PROMPT="0")
     latest = None
     bases = installed["base_sha256"]
     # Check them separately so a map catalog outage does not suppress a release.
     try:
-        with tempfile.TemporaryDirectory() as directory:
-            subprocess.run(["gh", "release", "download", "--repo", repo, "--pattern",
-                            "asurt-release.json", "--dir", directory], env=environment,
-                           stdin=subprocess.DEVNULL, capture_output=True, timeout=15, check=True)
-            manifest = json.loads((Path(directory) / "asurt-release.json").read_text())
+        if production:
+            url = f"https://github.com/{repo}/releases/latest/download/asurt-release.json"
+            with urlopen(url, timeout=15) as stream:
+                manifest = json.load(stream)
+        else:
+            with tempfile.TemporaryDirectory() as directory:
+                subprocess.run(["gh", "release", "download", "--repo", repo, "--pattern",
+                                "asurt-release.json", "--dir", directory], env=environment,
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=15, check=True)
+                manifest = json.loads((Path(directory) / "asurt-release.json").read_text())
         if manifest.get("format") == 1 and newer_revision(installed["tag"], manifest["tag"]):
             updated = {platform: manifest["runtime"][key]["shipping_sha256"]
                        for platform, key in (("WindowsNoEditor", "windows"), ("LinuxNoEditor", "linux"))
@@ -97,10 +103,15 @@ def check_updates(state):
             catalog = json.loads(Path(source).read_text())
         else:
             branch = quote(installed.get("branch", "main"), safe="")
-            catalog = json.loads(subprocess.check_output(
-                ["gh", "api", f"repos/{repo}/contents/asurt-maps.json?ref={branch}",
-                 "-H", "Accept: application/vnd.github.raw"], env=environment,
-                stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=12))
+            if production:
+                with urlopen(f"https://raw.githubusercontent.com/{repo}/{branch}/asurt-maps.json",
+                             timeout=12) as stream:
+                    catalog = json.load(stream)
+            else:
+                catalog = json.loads(subprocess.check_output(
+                    ["gh", "api", f"repos/{repo}/contents/asurt-maps.json?ref={branch}",
+                     "-H", "Accept: application/vnd.github.raw"], env=environment,
+                    stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=12))
         if catalog.get("format") == 1:
             maps = available_maps(catalog["maps"], state / "maps", bases)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):

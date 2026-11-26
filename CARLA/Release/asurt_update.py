@@ -654,7 +654,9 @@ def windows_shortcut_icons(installation, windows_root):
 
 def record_release(state, args, manifest):
     path = state / "release-installation.json"
-    if not args.github_cli:
+    production = args.repository.casefold() == PRODUCTION_REPOSITORY.casefold()
+    if not args.github_cli and (not production or
+                                (args.manifest and not args.manifest.startswith("https://"))):
         path.unlink(missing_ok=True)
         return
     bases = {}
@@ -679,6 +681,8 @@ def select_release_repository(args, manifest):
             and manifest.get("repository") == PRODUCTION_REPOSITORY):
         args.repository = PRODUCTION_REPOSITORY
         args.branch = "main"
+    if args.repository.casefold() == PRODUCTION_REPOSITORY.casefold():
+        args.github_cli = False
 
 
 def main():

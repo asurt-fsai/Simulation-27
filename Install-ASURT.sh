@@ -24,6 +24,10 @@ while (($#)); do
     esac
 done
 
+if [[ -z "$manifest" && "${repository,,}" == 'asurt-fsai/simulation-27' ]]; then
+    manifest="https://github.com/$repository/releases/latest/download/asurt-release.json"
+fi
+
 if [[ "$manifest" == https://* || -z "$manifest" ]]; then
     [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
         { echo "Supply the GitHub repository with --repository OWNER/REPO." >&2; exit 2; }
