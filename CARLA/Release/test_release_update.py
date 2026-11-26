@@ -71,6 +71,36 @@ class ReleaseUpdateTest(unittest.TestCase):
         record_release(self.state, args, payload)
         self.assertIsNone(update.receipt(self.state))
 
+    def test_testing_uses_the_highest_published_testing_build(self):
+        index = [
+            dict(tag_name=tag, prerelease=preview, draft=draft,
+                 assets=[{"name": "asurt-release.json"}])
+            for tag, preview, draft in (("v0.1.27-flat", False, False), ("testing-2", True, False),
+                                        ("testing-10", True, False), ("testing-11", True, True))
+        ]
+        urls = {
+            "https://api.github.com/repos/asurt-fsai/Simulation-27/releases?per_page=30": index,
+            "https://github.com/asurt-fsai/Simulation-27/releases/download/testing-10/asurt-release.json": {
+                "format": 1, "channel": "testing", "tag": "testing-10",
+                "runtime": {"linux": {"shipping_sha256": "linux-target"}}},
+            "https://raw.githubusercontent.com/asurt-fsai/Simulation-27/testing/asurt-maps.json": {
+                "format": 1, "maps": []},
+        }
+        (self.state / update.RECEIPT).write_text(json.dumps({
+            "repository": "asurt-fsai/Simulation-27", "branch": "main", "tag": "v0.1.27-flat",
+            "base_sha256": {"LinuxNoEditor": "linux-target"},
+        }))
+        update.select_branch(self.state, "testing")
+        with patch("release_update.urlopen", side_effect=lambda url, **_: StringIO(json.dumps(urls[url]))):
+            self.assertEqual(update.check_updates(self.state), ("testing-10", []))
+
+    def test_switching_can_install_the_same_stable_release_again(self):
+        stable = {"format": 1, "tag": "v0.1.27-flat"}
+        self.assertTrue(update.is_update({"tag": "testing-14"}, stable, "main"))
+        self.assertFalse(update.is_update({"tag": "v0.1.27-flat"}, stable, "main"))
+        self.assertFalse(update.is_update({"tag": "testing-14"}, {"format": 1, "tag": "testing-8"}, "testing"))
+        self.assertTrue(update.is_update({"tag": "testing-8"}, {"format": 1, "tag": "testing-14"}, "testing"))
+
     def test_newer_release_uses_target_compatible_maps(self):
         options = SimpleNamespace(github_cli=True, platform="windows", with_wsl_runtime=True,
                                   repository="owner/repo", branch="main", catalog=None)

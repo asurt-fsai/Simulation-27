@@ -54,6 +54,9 @@ def main():
         if not data or data["profile"] != "novnc":
             return
         try:
+            if os.environ.get("ASURT_PORTABLE"):
+                subprocess.Popen([PYTHON, LAUNCH / "session.py", "novnc", "viewer"])
+                return
             entry = subprocess.check_output(
                 ["wslpath", "-w", LAUNCH / "open-parity.ps1"], text=True).strip()
             subprocess.Popen(["powershell.exe", "-NoProfile", "-File", entry,

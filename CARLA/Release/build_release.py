@@ -87,7 +87,7 @@ def copy_overlay(source, target):
 
 def adapt_launchers(source, stack):
     launch = stack / "Simulation/CARLA/Launchers"
-    launch.mkdir(parents=True)
+    launch.mkdir(parents=True, exist_ok=True)
     for name in ("map_packs.py", "map_pack_panel.py", "managed_modules.py", "native_vulkan.py", "release_update.py",
                  "tools-launcher.py", "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
         copy(source / name, launch / name)
@@ -95,19 +95,21 @@ def adapt_launchers(source, stack):
     copy(HERE / "dev-build", stack / "bin/dev-build")
     (stack / "bin/asurt").chmod(0o755)
     copy(HERE / "windows-server.ps1", launch / "windows-server.ps1")
+    copy(HERE / "novnc_viewer.py", launch / "novnc_viewer.py")
     command = (source / "session.py").read_text()
     command = command.replace('ROOT = Path.home() / "ASURT"', 'ROOT = Path(os.environ["ASURT_ROOT"])')
     command = command.replace('LOG_ROOT = ROOT / "log" / "carla"', 'LOG_ROOT = Path(os.environ["ASURT_STATE_ROOT"]) / "log/carla"')
     command = command.replace('PYTHON = ROOT / ".venvs/carla/bin/python"', 'PYTHON = Path(sys.executable)')
     command = command.replace('PROFILES = {"wslg": "WSLg", "novnc": "noVNC", "windows": "Native Windows"}',
-                              'PROFILES = ({"windows": "Native Windows", "wslg": "WSLg"} '
+                              'PROFILES = ({"windows": "Native Windows", "wslg": "WSLg", "novnc": "noVNC"} '
                               'if os.environ["ASURT_PROFILE"] == "windows" else {"linux": "Ubuntu"})')
     command = command.replace('MAPS = {"silverstone": "Carla/Maps/silverstone/silverstone", "flat-asphalt": "Carla/Maps/FlatAsphalt"}',
                               'MAPS = {"flat-asphalt": "Carla/Maps/FlatAsphalt"}')
     command = command.replace('MAP_LABELS = {"silverstone": "Silverstone", "flat-asphalt": "FlatAsphalt"}',
                               'MAP_LABELS = {"flat-asphalt": "FlatAsphalt"}')
     command = command.replace('map_path=MAPS["silverstone"]', 'map_path=MAPS["flat-asphalt"]')
-    command = command.replace('display = ":1" if profile == "novnc" else ":0"', 'display = os.environ.get("DISPLAY", ":0")')
+    command = command.replace('display = ":1" if profile == "novnc" else ":0"',
+                              'display = ":1" if profile == "novnc" else os.environ.get("DISPLAY", ":0")')
     command = command.replace('profile = data["profile"] if data else "wslg"', 'profile = data["profile"] if data else os.environ["ASURT_PROFILE"]')
     command = command.replace('    if args.profile == "auto" and args.action not in', '''    if args.profile == "auto" and args.action in ("stop", "status"):
         active = running_session()
@@ -115,8 +117,24 @@ def adapt_launchers(source, stack):
         if active and args.action == "stop":
             args.session_state = args.session_state or active["state"]
     if args.profile == "auto" and args.action not in''')
-    command = command.replace('else (":1" if profile == "novnc" else ":0")', 'else os.environ.get("DISPLAY", ":0")')
-    command = command.replace('pace_world_to_wall_time=profile in ("wslg", "novnc")', 'pace_world_to_wall_time=profile in ("linux", "wslg")')
+    command = command.replace('else (":1" if profile == "novnc" else ":0")',
+                              'else (":1" if profile == "novnc" else os.environ.get("DISPLAY", ":0"))')
+    command = command.replace('        window_env.pop("WAYLAND_DISPLAY", None)',
+                              '        window_env.pop("WAYLAND_DISPLAY", None)\n'
+                              '        window_env.pop("XAUTHORITY", None)')
+    command = command.replace('pace_world_to_wall_time=profile in ("wslg", "novnc")',
+                              'pace_world_to_wall_time=profile in ("linux", "wslg", "novnc")')
+    a = command.index("def wake_novnc():")
+    b = command.index("def stop_process(", a)
+    command = command[:a] + '''def wake_novnc():
+    from novnc_viewer import desktop
+    return desktop(LOG_ROOT)
+
+
+''' + command[b:]
+    command = command.replace('        wake_novnc()\n    elif args.action in ("stop", "status"):',
+                              '        from novnc_viewer import open_viewer\n        open_viewer(LOG_ROOT)\n'
+                              '    elif args.action in ("stop", "status"):')
     command = command.replace('trackdraw / ".venv/bin/python"', 'PYTHON')
     command = command.replace('args = ["powershell.exe", "-NoProfile", "-File", script,',
                               'args = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,')
@@ -144,11 +162,15 @@ def adapt_launchers(source, stack):
                 launch = [binary, world, defaults, "-RenderOffScreen", "-quality-level=Low",
                           "-nosound", "-vulkan", "-carla-rpc-port=2000"]
                 server_env = env
+                if profile == "novnc":
+                    env.update(wake_novnc())
+                    env.pop("WAYLAND_DISPLAY", None)
+                    env.pop("XAUTHORITY", None)
                 if profile == "linux":
                     from native_vulkan import native_vulkan_environment
                     server_env, renderer = native_vulkan_environment(env)
                     print(f"ASURT Ubuntu Vulkan renderer: {renderer}", flush=True)
-                elif profile == "wslg":
+                elif profile in ("wslg", "novnc"):
                     dozen = Path.home() / ".local/opt/asurt-dozen-20261024/scripts/run-dozen.sh"
                     if not dozen.is_file():
                         raise RuntimeError("Mesa Dozen is missing. Rerun the Windows installer.")
@@ -305,7 +327,7 @@ def pack_directory(directory, output, prefix=""):
             archive.add(directory, arcname=prefix or ".", filter=normalize)
 
 
-def write_installers(output, repository=None):
+def write_installers(output, repository=None, branch="main"):
     shell = (REPOSITORY / "Install-ASURT.sh").read_text()
     windows = (REPOSITORY / "Install-ASURT.ps1").read_text()
     if repository:
@@ -314,6 +336,9 @@ def write_installers(output, repository=None):
             raise ValueError("Expected a GitHub owner/repository.")
         shell = shell.replace(PRODUCTION_REPOSITORY, repository, 1)
         windows = windows.replace(PRODUCTION_REPOSITORY, repository, 1)
+    if branch == "testing":
+        shell = shell.replace("\nbranch=main\n", "\nbranch=testing\n", 1)
+        windows = windows.replace("[string]$Branch='main'", "[string]$Branch='testing'", 1)
     payload = shell.encode()
     (output / "Install-ASURT.sh").write_bytes(payload)
     embedded = base64.b64encode(payload).decode()
@@ -330,6 +355,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tag", default="v0.1.0-flat")
     parser.add_argument("--repository", help="Bind both installers to a GitHub OWNER/REPO.")
+    parser.add_argument("--branch", choices=("main", "testing"), default="main")
     parser.add_argument("--wsl-graphics", type=Path, help="Include the pinned Mesa Dozen WSL archive.")
     parser.add_argument("--reuse-runtimes-from", type=Path,
                         help="Use the simulator downloads from an earlier release manifest.")
@@ -338,7 +364,7 @@ def main():
         parser.error("Supply both staged runtimes or --reuse-runtimes-from.")
     output = args.output
     output.mkdir(parents=True, exist_ok=False)
-    write_installers(output, args.repository)
+    write_installers(output, args.repository, args.branch)
     with tempfile.TemporaryDirectory() as temporary:
         build_stack(args, output, Path(temporary))
     linux = output / "ASURT-FlatAsphalt-Ubuntu-22.04-x64.tar.gz"
@@ -364,6 +390,8 @@ def main():
             "stack": item(output / "ASURT-Stack-Ubuntu-22.04-x64.tar.gz"),
             "ubuntu_packages": (HERE / "ubuntu-packages.txt").read_text().splitlines(),
             "runtime": runtimes}
+    if args.branch == "testing":
+        data["channel"] = "testing"
     if args.wsl_graphics:
         driver = item(args.wsl_graphics)
         if driver["file"] != WSL_GRAPHICS_FILE or driver["sha256"] != WSL_GRAPHICS_SHA256:

@@ -7,6 +7,13 @@ ASURT Formula Student AI simulators.
 | **Gazebo Harmonic** | Follow the [Gazebo guide](Gazebo/README.md) and build the ROS packages from `Gazebo/`. |
 | **CARLA** | Download the installer for your OS from [Simulation-27 Releases](https://github.com/asurt-fsai/Simulation-27/releases/latest). The installer opens FlatAsphalt by default. |
 
+## Maps, tracks, and ROS topics
+
+- **FlatAsphalt** is included in the [Windows and Ubuntu simulator runtimes](https://github.com/asurt-fsai/Simulation-27/releases/tag/v0.1.25-flat).
+- **Silverstone Split** is an optional map for both Release and Testing. Select it in the installer or [download the same map ZIP directly](https://github.com/asurt-fsai/Simulation-27/releases/download/v0.1.25-flat/silverstone-section.zip).
+- Open the [map source and importable tracks](CARLA/Assets/Maps) for Silverstone OpenDRIVE, cone CSV/JSON, and the competition layouts.
+- See the [ROS topic overview](ROS_TOPICS.md) and the [detailed autonomous topic reference](CARLA/Tools/RViz/ROS_TOPICS.md).
+
 ## Install CARLA
 
 On **Windows x64**, run the release copy of `Install-ASURT.ps1` in PowerShell. It provisions WSL2 and Ubuntu 22.04 as needed. Approve the Windows setup prompt and rerun after restarting if Windows requires it. Complete Ubuntu's first-run user setup when prompted.
@@ -49,6 +56,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-ASURT.ps1 -Map
 Starting with v0.1.26-flat, System Manager checks `asurt-fsai/Simulation-27` for new releases and compatible maps each time it opens, without a GitHub sign-in. On Windows and Ubuntu, accepting the prompt closes the managed ASURT simulator and tools, then opens the installer in a terminal with all compatible maps selected. Declining dismisses the prompt until the next time System Manager opens.
 
 Older installations can accept the transition update if their existing GitHub credentials still work. If System Manager offers no update, run the latest Simulation-27 installer once to switch the installation to public updates.
+
+In **System Manager → Module Settings → Update Channel**, choose **Release** or **Testing**. The manager checks the selected channel immediately and starts the installer when an update is available. Future checks use the selected channel. On Windows, the Testing installer also provisions the noVNC desktop used by the **FlatAsphalt noVNC** and **noVNC Viewer** shortcuts.
 
 ## Edit team modules and tools
 

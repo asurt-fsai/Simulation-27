@@ -647,8 +647,8 @@ def linux_shortcuts(root):
 def windows_shortcut_icons(installation, windows_root):
     destination = windows_root / "shortcut-icons"
     destination.mkdir(parents=True, exist_ok=True)
-    for action in (*ACTIONS.values(), "start-wslg"):
-        icon = "wslg" if action == "start-wslg" else action
+    for action in (*ACTIONS.values(), "start-wslg", "start-novnc", "novnc-viewer"):
+        icon = {"start-wslg": "wslg", "start-novnc": "novnc", "novnc-viewer": "novnc"}.get(action, action)
         shutil.copyfile(installation / ICON_ROOT / f"{icon}.ico", destination / f"{action}.ico")
 
 
@@ -672,6 +672,7 @@ def record_release(state, args, manifest):
     temporary = path.with_suffix(".next")
     temporary.write_text(json.dumps(data, indent=2) + "\n")
     temporary.replace(path)
+    (state / "update-channel.json").unlink(missing_ok=True)
 
 
 def select_release_repository(args, manifest):
@@ -718,6 +719,10 @@ def main():
         raise ValueError("Unsupported ASURT release format.")
     select_release_repository(args, manifest)
     args.tag = manifest["tag"]
+    if args.repository.casefold() == PRODUCTION_REPOSITORY.casefold():
+        channel = manifest.get("channel", "main")
+        if channel != args.branch or (channel == "testing" and not re.fullmatch(r"testing-\d+", args.tag)):
+            raise ValueError("The installer channel and ASURT release manifest do not match.")
     with (log / "session.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

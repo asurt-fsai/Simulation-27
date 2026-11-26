@@ -1,0 +1,52 @@
+name: Publish ASURT Testing
+on:
+  push:
+    branches: [testing]
+permissions:
+  contents: write
+concurrency:
+  group: simulation-27-testing
+  cancel-in-progress: true
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Package and publish the testing commit
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch -q --depth=1 origin "$GITHUB_SHA"
+          git checkout -q --detach FETCH_HEAD
+          base=$(mktemp -d)
+          out=$(mktemp -d)
+          gh release download -R "$GITHUB_REPOSITORY" -p asurt-release.json -p ASURT-Editable-Workspace.tar.gz -D "$base"
+          stable=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$base/asurt-release.json")
+          git fetch -q --depth=1 origin "refs/tags/$stable:refs/tags/$stable" "refs/heads/main:refs/remotes/origin/main"
+          python3 - <<'PY'
+          import json, subprocess
+          def silverstone(data):
+              return next(item for item in json.loads(data)["maps"] if item["id"] == "silverstone-section")
+          assert silverstone(open("asurt-maps.json").read()) == silverstone(
+              subprocess.check_output(["git", "show", "origin/main:asurt-maps.json"], text=True))
+          PY
+          python3 -m unittest discover -s CARLA/Release
+          tag="testing-$GITHUB_RUN_NUMBER"
+          python3 CARLA/Release/build_channel_release.py --branch testing --tag "$tag" --output "$out" \
+            --base-manifest "$base/asurt-release.json" --base-patch "$base/ASURT-Editable-Workspace.tar.gz"
+          printf '%s\n' "Testing build from commit $GITHUB_SHA." \
+            "Uses the same [FlatAsphalt runtimes and Silverstone Split map pack](https://github.com/$GITHUB_REPOSITORY/releases/tag/v0.1.25-flat) as Release." >"$out/notes.md"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isDraft >"$out/release-state.json" 2>/dev/null; then
+            if [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["isDraft"])' "$out/release-state.json") == False ]]; then
+              exit 0
+            fi
+          else
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease \
+              --latest=false --title "ASURT Testing $GITHUB_RUN_NUMBER" --notes-file "$out/notes.md"
+          fi
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" --clobber "$out/Install-ASURT.sh" "$out/Install-ASURT.ps1" \
+            "$out/asurt-release.json" "$out/asurt_update.py" "$out/ASURT-Editable-Workspace.tar.gz" "$out/asurt-maps.json"
+          gh release edit "$tag" -R "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false

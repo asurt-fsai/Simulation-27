@@ -97,6 +97,8 @@ Each simulator runtime and the module/tool stack has a separate SHA-256 in `asur
 
 A small stack update can pin the previous stack asset by release tag and supply a verified
 `stack_patch` archive. The installer applies it to a new stack before activating the version.
+
+Push to `testing` to publish a numbered `testing-N` prerelease from the current released CARLA and ROS binaries. The workflow packages launcher, tool, and editable asset changes. Changes that need rebuilt ROS binaries require a full stack build. The Testing and Release catalogs reference the same published Silverstone Split ZIP. Merging the source into `main` leaves production on the Release channel until a stable release is published.
 Use `--wsl-graphics` when assembling a release that includes the pinned Mesa Dozen WSL
 archive. Publish it alongside the manifest, or reference its existing production
 release tag in `wsl_graphics`.

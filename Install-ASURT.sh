@@ -2,6 +2,7 @@
 set -euo pipefail
 repository="${ASURT_REPOSITORY:-asurt-fsai/Simulation-27}"
 manifest=
+branch=main
 platform=linux
 windows_root=
 root="$HOME/.local/share/asurt"
@@ -16,7 +17,8 @@ while (($#)); do
         --windows-root) windows_root=${2:?}; shift 2 ;;
         --root) root=${2:?}; shift 2 ;;
         --maps) maps=${2:?}; shift 2 ;;
-        --catalog|--branch) extra+=("$1" "${2:?}"); shift 2 ;;
+        --branch) branch=${2:?}; shift 2 ;;
+        --catalog) extra+=("$1" "${2:?}"); shift 2 ;;
         --no-shortcuts|--fixture) extra+=("$1"); shift ;;
         --skip-dependencies) skip_dependencies=true; shift ;;
         --help) echo "Usage: bash Install-ASURT.sh --repository OWNER/REPO [--maps ask|all|none]"; exit ;;
@@ -24,9 +26,8 @@ while (($#)); do
     esac
 done
 
-if [[ -z "$manifest" && "${repository,,}" == 'asurt-fsai/simulation-27' ]]; then
-    manifest="https://github.com/$repository/releases/latest/download/asurt-release.json"
-fi
+public=false
+[[ "${repository,,}" != 'asurt-fsai/simulation-27' ]] || public=true
 
 if [[ "$manifest" == https://* || -z "$manifest" ]]; then
     [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
@@ -44,13 +45,38 @@ if [[ "$skip_dependencies" == false ]]; then
     fi
     missing=()
     bootstrap_packages=(python3 curl ca-certificates)
-    if [[ -z "$manifest" ]]; then bootstrap_packages+=(gh); fi
+    if [[ -z "$manifest" && "$public" == false ]]; then bootstrap_packages+=(gh); fi
     for name in "${bootstrap_packages[@]}"; do
         dpkg-query -W -f='${db:Status-Status}' "$name" 2>/dev/null | grep -qx installed || missing+=("$name")
     done
     if ((${#missing[@]})); then
         sudo apt-get update
         sudo apt-get install -y "${missing[@]}"
+    fi
+fi
+
+if [[ -z "$manifest" && "$public" == true ]]; then
+    if [[ "$branch" == testing ]]; then
+        testing_tag=$(python3 - "$repository" <<'PY'
+import json
+import re
+import sys
+from urllib.request import urlopen
+
+with urlopen(f"https://api.github.com/repos/{sys.argv[1]}/releases?per_page=30", timeout=30) as stream:
+    releases = json.load(stream)
+builds = (tag for release in releases if release["prerelease"] and not release["draft"]
+          and any(asset["name"] == "asurt-release.json" for asset in release["assets"])
+          if (tag := re.fullmatch(r"testing-(\d+)", release["tag_name"])))
+latest = max(builds, key=lambda tag: int(tag[1]), default=None)
+if latest is None:
+    sys.exit("No published ASURT testing build is available.")
+print(latest[0])
+PY
+        )
+        manifest="https://github.com/$repository/releases/download/$testing_tag/asurt-release.json"
+    else
+        manifest="https://github.com/$repository/releases/latest/download/asurt-release.json"
     fi
 fi
 
@@ -135,6 +161,9 @@ PY
     if [[ "$platform" == windows ]]; then
         packages+=(vulkan-tools libdrm2 libxcb1 libx11-xcb1 libxcb-dri3-0 libxcb-present0
             libxcb-xfixes0 libxcb-sync1 libxcb-randr0 libxcb-shm0 libxshmfence1 libexpat1 zlib1g libzstd1)
+        if [[ "$branch" == testing ]]; then
+            packages+=(tigervnc-standalone-server novnc websockify x11-utils openbox)
+        fi
     fi
     missing=()
     for name in "${packages[@]}"; do
@@ -199,4 +228,4 @@ PY
 fi
 [[ -z "$windows_root" ]] || extra+=(--windows-root "$windows_root")
 [[ -z "$manifest" ]] || extra+=(--manifest "$manifest")
-python3 "$temp/asurt_update.py" --metadata "$temp/manifest.json" --repository "$repository" --root "$root" --platform "$platform" --maps "$maps" "${extra[@]}"
+python3 "$temp/asurt_update.py" --metadata "$temp/manifest.json" --repository "$repository" --root "$root" --platform "$platform" --maps "$maps" --branch "$branch" "${extra[@]}"

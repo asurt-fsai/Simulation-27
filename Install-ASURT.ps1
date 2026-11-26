@@ -162,6 +162,8 @@ if (!$SkipFirewall) {
 $shortcutActions=[ordered]@{
     'ASURT FlatAsphalt'='start'
     'ASURT FlatAsphalt WSLg'='start-wslg'
+    'ASURT FlatAsphalt noVNC'='start-novnc'
+    'ASURT noVNC Viewer'='novnc-viewer'
     'ASURT Stop Simulator'='stop'
     'ASURT CARLA System Manager'='manager'
     'ASURT CARLA Map Packs'='map-packs'

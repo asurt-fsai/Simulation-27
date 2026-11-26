@@ -81,5 +81,11 @@ if [[ "$action" == start ]]; then
 elif [[ "$action" == start-wslg ]]; then
     action=start
     profile=wslg
+elif [[ "$action" == start-novnc ]]; then
+    action=start
+    profile=novnc
+elif [[ "$action" == novnc-viewer ]]; then
+    action=viewer
+    profile=novnc
 fi
 exec /usr/bin/python3 "$launch/session.py" "$profile" "$action" "$@" >>"$log/$action-release.log" 2>&1
