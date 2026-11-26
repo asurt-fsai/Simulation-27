@@ -65,7 +65,8 @@ def set_weather_fields(world, updates: dict[str, float], directory=None) -> dict
             if checked["precipitation"] <= 0.0:
                 raise ValueError("Timed rain needs a positive rainfall intensity.")
         elif duration == 0.0:
-            checked["precipitation"] = 0.0
+            settings.pop("rain_ends_at", None)
+            checked.setdefault("precipitation", 0.0)
         if checked.get("precipitation") == 0.0:
             settings.pop("rain_ends_at", None)
         for key, value in checked.items():
@@ -94,7 +95,7 @@ def thermal_status(directory, elapsed=None):
 
 
 CAMERA_PRESETS = ("sun_low", "sun_high", "sun_behind")
-PRESETS = (*CAMERA_PRESETS, "clear_noon", "overcast", "heavy_rain", "dense_fog", "dust", "wet_road")
+PRESETS = (*CAMERA_PRESETS, "clear_noon", "overcast", "heavy_rain", "clear_rain", "dense_fog", "dust", "wet_road")
 
 
 def scene_preset(name: str, heading: float | None) -> dict[str, float]:
@@ -112,6 +113,7 @@ def scene_preset(name: str, heading: float | None) -> dict[str, float]:
         "overcast": dict(stop_rain, cloudiness=90, fog_density=6, fog_distance=0, dust_storm=0),
         "heavy_rain": dict(precipitation=85, precipitation_deposits=70,
                            wetness=90, wind_intensity=65, fog_density=0, fog_distance=0, dust_storm=0),
+        "clear_rain": dict(stop_rain, wetness=0, precipitation_deposits=0),
         "dense_fog": dict(stop_rain, cloudiness=70,
                           fog_density=85, fog_distance=0, fog_falloff=2.0,
                           dust_storm=0),

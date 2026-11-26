@@ -82,7 +82,8 @@ TOOLS = {
              "fog, dust, and per-wheel configured and rolling effective grip.", read_only=True),
         tool(set_weather, "Apply a Weather Editor preset, individual fields, or both on the active simulator. "
              "Use air_temperature_c to set air temperature and rain_duration_s for simulated seconds of rain. "
-             "Set rain_duration_s to 0 to stop rain. Explicit fields override the preset.",
+             "Set rain_duration_s to 0 to stop rain or use clear_rain to dry the road immediately. "
+             "Explicit fields override the preset.",
              {"preset": choice(*PRESETS),
               "fields": {"type": "object", "additionalProperties": False,
                          "properties": {key: number(low, high) for key, _, low, high, _, _ in CONTROLS}}}),

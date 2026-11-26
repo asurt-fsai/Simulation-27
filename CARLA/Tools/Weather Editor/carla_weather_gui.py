@@ -170,6 +170,7 @@ class WeatherPanel:
         self.scene_var = tk.StringVar(value="Source: waiting for CARLA…")
         self.feedback_var = tk.StringVar(value="No simulation changes until you move a control or choose a preset.")
         self.road_var = tk.StringVar()
+        self.rain_timer = tk.BooleanVar(value=False)
         self.rain_seconds = tk.StringVar(value="60")
         self._style()
         self._build()
@@ -225,10 +226,15 @@ class WeatherPanel:
             self._add_slider(left, name)
         if ROAD_WEATHER_DIR:
             self._add_slider(left, "air_temperature_c")
-            row = ttk.Frame(left, style="Card.TFrame")
-            row.pack(fill="x", pady=(8, 0))
-            ttk.Button(row, text="Start timed rain", command=self.start_timed_rain).pack(side="left")
-            ttk.Spinbox(row, from_=1, to=3600, textvariable=self.rain_seconds, width=5).pack(side="left", padx=6)
+        row = ttk.Frame(left, style="Card.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Button(row, text="Start Rain", command=self.start_rain).pack(side="left")
+        if ROAD_WEATHER_DIR:
+            duration = ttk.Spinbox(row, from_=1, to=3600, textvariable=self.rain_seconds, width=5, state="disabled")
+            timer = ttk.Checkbutton(row, text="Timer", variable=self.rain_timer,
+                                    command=lambda: duration.configure(state="normal" if self.rain_timer.get() else "disabled"))
+            timer.pack(side="left", padx=(8, 3))
+            duration.pack(side="left", padx=(0, 5))
             ttk.Label(row, text="seconds", style="Card.TLabel").pack(side="left")
             ttk.Label(left, textvariable=self.road_var, style="Hint.TLabel", wraplength=360).pack(anchor="w", pady=(6, 0))
         ttk.Label(left, text="Align sun with the camera for strong frontal glare.",
@@ -245,9 +251,7 @@ class WeatherPanel:
             self._add_slider(right, name)
         presets = ttk.Frame(shell)
         presets.pack(fill="x", pady=(13, 8))
-        ttk.Label(presets, text="QUICK CONDITIONS", style="Muted.TLabel").pack(
-            side="left", padx=(0, 8))
-        for label, name in [("Overcast", "overcast"), ("Heavy rain", "heavy_rain"),
+        for label, name in [("Overcast", "overcast"), ("Heavy rain", "heavy_rain"), ("Clear Rain", "clear_rain"),
                             ("Dense fog", "dense_fog"), ("Dust", "dust"), ("Wet road", "wet_road")]:
             ttk.Button(presets, text=label, command=lambda p=name: self.preset(p)).pack(
                 side="left", padx=3)
@@ -311,21 +315,28 @@ class WeatherPanel:
         self.pending.clear()
         self.requests.put(("apply", {"revision": self.revision, "updates": updates}))
 
-    def start_timed_rain(self):
-        try:
-            duration = clean_value("rain_duration_s", self.rain_seconds.get())
-            if duration <= 0:
-                raise ValueError("Choose a positive duration for timed rain.")
-        except ValueError as exc:
-            self.feedback_var.set(str(exc))
-            return
+    def start_rain(self):
         if not self.connected:
-            self.feedback_var.set("Connect to CARLA before starting timed rain.")
+            self.feedback_var.set("Connect to CARLA before starting rain.")
             return
-        self.pending.update(rain_duration_s=duration,
-                            precipitation=self.controls["precipitation"][0].get() or 75.0)
+        updates = {"precipitation": self.controls["precipitation"][0].get() or 75.0}
+        if ROAD_WEATHER_DIR:
+            duration = 0
+            if self.rain_timer.get():
+                try:
+                    duration = clean_value("rain_duration_s", self.rain_seconds.get())
+                    if duration <= 0:
+                        raise ValueError("Choose a positive duration for timed rain.")
+                except ValueError as exc:
+                    self.feedback_var.set(str(exc))
+                    return
+            updates["rain_duration_s"] = duration
+        if self.debounce_id is not None:
+            self.root.after_cancel(self.debounce_id)
+        self.pending.update(updates)
         self.revision += 1
         self.last_edit = time.monotonic()
+        self._fill(updates)
         self._submit()
 
     def preset(self, name):

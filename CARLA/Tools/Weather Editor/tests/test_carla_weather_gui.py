@@ -137,6 +137,29 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(grip_multiplier(weather, 32), grip_multiplier(weather, 12))
         self.assertGreater(grip_multiplier(weather, 32), grip_multiplier(weather, 58))
 
+    def test_clear_rain_drains_the_road_and_cancels_timed_rain(self):
+        world = FakeWorld()
+        with tempfile.TemporaryDirectory() as directory:
+            gui.set_weather_fields(world, {"rain_duration_s": 60, "wetness": 90,
+                                           "precipitation_deposits": 70, "air_temperature_c": 19}, directory)
+            applied = gui.set_weather_fields(world, gui.scene_preset("clear_rain", None), directory)
+            self.assertEqual([applied[k] for k in ("precipitation", "wetness", "precipitation_deposits")], [0, 0, 0])
+            self.assertEqual(applied["cloudiness"], 10)
+            thermal = gui.thermal_status(directory, 0)
+            self.assertIsNone(thermal["rain_remaining_s"])
+            self.assertEqual(thermal["air_temperature_c"], 19)
+
+    def test_start_rain_without_timer_cancels_an_existing_countdown(self):
+        world = FakeWorld()
+        with tempfile.TemporaryDirectory() as directory:
+            gui.set_weather_fields(world, {"rain_duration_s": 60, "wetness": 80}, directory)
+            applied = gui.set_weather_fields(world, {"rain_duration_s": 0, "precipitation": 45}, directory)
+            self.assertEqual(applied["precipitation"], 45)
+            self.assertEqual(applied["wetness"], 80)
+            self.assertIsNone(gui.thermal_status(directory, 0)["rain_remaining_s"])
+            applied = gui.set_weather_fields(world, {"rain_duration_s": 0}, directory)
+            self.assertEqual(applied["precipitation"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

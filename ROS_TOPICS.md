@@ -34,9 +34,11 @@ domain used by the player and RViz.
 Weather Editor, MCP `set_weather`, and CARLA API changes apply to an active
 FlatAsphalt or Silverstone Split session. Open **System Manager → Weather Status**
 or call MCP `weather_status` to read the current weather and wheel grip.
-Rain builds cloud cover, wets the road, and collects standing water. When rain
+**Start Rain** uses the selected rainfall intensity. Enable **Timer** to choose
+when rainfall stops. Rain builds cloud cover, wets the road, and collects standing water. When rain
 stops, the sky moves back toward the selected cloud cover. Clear Noon clears
-the sky and leaves the road to dry. Sunlight, higher asphalt temperature, and
+the sky and leaves the road to dry. **Clear Rain** stops the rain and dries the
+road immediately. Sunlight, higher asphalt temperature, and
 wind speed up drying. The estimated rubber temperature follows air and asphalt
 temperature and adjusts grip around a generic operating band. At zero wetness
 and standing water, the vehicle returns to its temperature-adjusted dry grip.
