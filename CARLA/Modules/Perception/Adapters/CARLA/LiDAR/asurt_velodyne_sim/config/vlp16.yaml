@@ -1,0 +1,29 @@
+asurt_velodyne_sim_node:
+  ros__parameters:
+    host: "127.0.0.1"
+    port: 2000
+    role_name: "hero"
+    # Original FSAI Blender LiDAR housing origin. CARLA hero origin aligns
+    # with Blender world origin, not the URDF's shifted base_link origin.
+    # ROS +Y left; the CARLA sensor attachment uses -mount_y_m.
+    # Housing center is not a calibration of internal VLP-16 laser origin.
+    mount_x_m: 0.3755355179
+    mount_y_m: 0.0100316303
+    mount_z_m: 0.6965517998
+    frame_id: "velodyne"
+    base_frame_id: "base_link"
+    topic: "/velodyne_points"
+    # VLP-16 Puck reference profile (one return; ray_cast approximation).
+    model: uniform
+    channels: 16
+    range_m: 100.0
+    upper_fov_deg: 15.0
+    lower_fov_deg: -15.0
+    rotation_hz: 10.0
+    points_per_second: 300000
+    noise_stddev_m: 0.02
+    atmosphere_attenuation: 0.004
+    dropoff_general_rate: 0.02
+    dropoff_intensity_limit: 0.15
+    dropoff_zero_intensity: 0.1
+    publish_tf: true

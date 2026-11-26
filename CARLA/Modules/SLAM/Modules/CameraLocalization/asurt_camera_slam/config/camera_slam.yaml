@@ -1,0 +1,29 @@
+asurt_camera_slam:
+  ros__parameters:
+    use_sim_time: true
+    map_frame: map
+    base_frame: base_link
+    camera_topic: /perception_landmarks
+    odom_topic: /odom
+    # Optional std_msgs/String: send e.g. silverstone or FlatAsphalt;
+    # changing value clears all map/pose state before subsequent measurements.
+    map_identity_topic: /slam/camera/map_id
+    maximum_odom_age_s: 0.18
+    maximum_sensor_silence_s: 2.0
+    max_detections: 48
+    max_anchors: 400
+    max_range_m: 14.0
+    min_confidence: 0.45
+    association_gate_m: 1.7
+    gate_chi2: 9.21
+    min_anchor_hits: 4
+    min_distinct_views: 3
+    min_view_motion_m: 0.15
+    min_baseline_m: 0.45
+    anchor_ttl_s: 240.0
+    max_step_m: 0.9
+    max_step_yaw_rad: 0.22
+    max_residual_rms_m: 0.55
+    max_pose_jump_m: 10.0
+    max_pose_jump_yaw_rad: 1.1
+    map_publish_hz: 2.0

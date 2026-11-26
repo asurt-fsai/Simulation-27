@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fsai_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch and ROS-Gazebo integration for the ASURT FSAI simulator.</description>
+  <maintainer email="dev@asurt.eng.asu.edu">ASU RT</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>fsai_worlds</exec_depend>
+  <exec_depend>fsai_description</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

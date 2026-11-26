@@ -1,0 +1,23 @@
+asurt_slam_fusion:
+  ros__parameters:
+    use_sim_time: true
+    camera_topic: /perception_landmarks
+    lidar_cones_topic: /lidar/cones
+    bridge_odom_topic: /odom
+    # Optional normalization adapter publishes only after trajectory validation;
+    # raw LeGO /slam/lidar/odom must never be accepted as normalized REP-103.
+    lidar_odom_topic: /slam/lidar/normalized_odom
+    lidar_odom_frame: lidar_odom
+    lidar_odom_child_frame: base_link
+    map_frame: map
+    base_frame: base_link
+    pair_tolerance_s: 0.12
+    motion_negligible_s: 0.015
+    maximum_odom_age_s: 0.18
+    maximum_lidar_odom_age_s: 0.18
+    reset_on_pose_jump_m: 30.0
+    association_gate_m: 1.25
+    association_chi2: 9.21
+    max_cones_per_sensor: 64
+    maximum_reference_anchors: 500
+    map_gate_m: 1.40

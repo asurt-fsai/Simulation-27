@@ -1,0 +1,32 @@
+{
+  "OrangeCone.fbx": {
+    "body_material": "Yellow.001",
+    "linear_rgb": [
+      0.44,
+      0.048,
+      0.0
+    ],
+    "properties": [
+      "DiffuseColor",
+      "SpecularColor",
+      "ReflectionColor"
+    ],
+    "before_sha256": "3f9dbd83c1ddf2c6adf30b245af72bd0d124b7f94c31ccea79521288ccd2ec09",
+    "after_sha256": "c6239e7895457b560905effaea045539d1ddb64337a0861b0ed04a01fc89221c"
+  },
+  "LargeOrangeCone.fbx": {
+    "body_material": "Yellow",
+    "linear_rgb": [
+      0.44,
+      0.048,
+      0.0
+    ],
+    "properties": [
+      "DiffuseColor",
+      "SpecularColor",
+      "ReflectionColor"
+    ],
+    "before_sha256": "e3eadda7803f0193b8d4f8e51c4be89538daa172b87c6b8eba20964941d762ed",
+    "after_sha256": "26bf3ec852b84ba5a21bb76ffd71d5f8f803104c350027cc8340515aa371580b"
+  }
+}

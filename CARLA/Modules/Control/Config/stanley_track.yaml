@@ -1,0 +1,30 @@
+asurt_stanley_control:
+  ros__parameters:
+    use_sim_time: true
+    path_topic: /planning/track_goal/path
+    planner_status_topic: /planning/track_goal/status
+    odometry_topic: /odom
+    mode_topic: /sim/feedback/autonomous_mode
+    drive_topic: /drive
+    output_enabled: true
+    update_period_s: 0.05
+    max_odom_age_s: 0.4
+    max_path_age_s: 0.75
+    max_status_age_s: 0.75
+    max_mode_age_s: 0.75
+    teleport_distance_m: 8.0
+    wheelbase_m: 1.575
+    # Hero front-wheel steering is configured at 16 degrees.
+    max_steer_rad: 0.2792526803190927
+    # 100 km/h target cap matches the existing CARLA bridge max_velocity_kmh.
+    # Actual speeds depend on the route/turn radii, physics, track length.
+    target_speed_mps: 27.77777777777778
+    stanley_gain: 1.7
+    softening_speed_mps: 1.2
+    max_lateral_accel_mps2: 4.0
+    max_accel_mps2: 4.0
+    max_brake_mps2: 7.0
+    goal_buffer_m: 0.9
+    cross_track_limit_m: 2.0
+    heading_limit_rad: 0.9
+    max_path_curvature_m_inv: 0.182

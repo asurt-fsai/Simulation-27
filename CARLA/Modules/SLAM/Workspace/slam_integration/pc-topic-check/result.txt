@@ -1,0 +1,3 @@
+domain 194
+{'/slam/path': 1, '/map/global_cones': 1, '/slam/camera/status': 1, '/slam/lidar/odom': 1, '/slam/lidar/normalization_status': 1, '/slam/fusion/status': 1}
+{'/clock': 0, '/odom': 0, '/tf': 0, '/tf_static': 0, '/drive': 0, '/cmd_vel': 0, '/carla/ego_vehicle/vehicle_control_cmd': 0}

@@ -1,0 +1,749 @@
+{
+  "schema": "ASURT_CARLA_TrackImporter_2026",
+  "event": "skidpad",
+  "units": "m",
+  "coordinate_system": "local_CARLA_xy_x_forward_y_right",
+  "cones": [
+    {
+      "tag": "blue",
+      "x": 0.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "yellow",
+      "x": 0.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "blue",
+      "x": 5.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "yellow",
+      "x": 5.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "yellow",
+      "x": 22.475,
+      "y": 9.125,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 0
+    },
+    {
+      "tag": "yellow",
+      "x": 21.906,
+      "y": 11.985559,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 1
+    },
+    {
+      "tag": "yellow",
+      "x": 20.285623,
+      "y": 14.410623,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 2
+    },
+    {
+      "tag": "yellow",
+      "x": 17.860559,
+      "y": 16.031,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 3
+    },
+    {
+      "tag": "yellow",
+      "x": 15.0,
+      "y": 16.6,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 4
+    },
+    {
+      "tag": "yellow",
+      "x": 12.139441,
+      "y": 16.031,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 5
+    },
+    {
+      "tag": "yellow",
+      "x": 9.714377,
+      "y": 14.410623,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 6
+    },
+    {
+      "tag": "yellow",
+      "x": 8.094,
+      "y": 11.985559,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 7
+    },
+    {
+      "tag": "yellow",
+      "x": 7.525,
+      "y": 9.125,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 8
+    },
+    {
+      "tag": "yellow",
+      "x": 8.094,
+      "y": 6.264441,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 9
+    },
+    {
+      "tag": "yellow",
+      "x": 9.714377,
+      "y": 3.839377,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 10
+    },
+    {
+      "tag": "yellow",
+      "x": 12.139441,
+      "y": 2.219,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 11
+    },
+    {
+      "tag": "yellow",
+      "x": 15.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 12
+    },
+    {
+      "tag": "yellow",
+      "x": 17.860559,
+      "y": 2.219,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 13
+    },
+    {
+      "tag": "yellow",
+      "x": 20.285623,
+      "y": 3.839377,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 14
+    },
+    {
+      "tag": "yellow",
+      "x": 21.906,
+      "y": 6.264441,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "right",
+      "index": 15
+    },
+    {
+      "tag": "blue",
+      "x": 23.254129,
+      "y": 2.198964,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 0
+    },
+    {
+      "tag": "blue",
+      "x": 25.228089,
+      "y": 5.73578,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 1
+    },
+    {
+      "tag": "blue",
+      "x": 25.75677,
+      "y": 9.751511,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 2
+    },
+    {
+      "tag": "blue",
+      "x": 24.765466,
+      "y": 13.678712,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 3
+    },
+    {
+      "tag": "blue",
+      "x": 22.394254,
+      "y": 16.962451,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 4
+    },
+    {
+      "tag": "blue",
+      "x": 18.978196,
+      "y": 19.13872,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 5
+    },
+    {
+      "tag": "blue",
+      "x": 15.0,
+      "y": 19.9,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 6
+    },
+    {
+      "tag": "blue",
+      "x": 11.021804,
+      "y": 19.13872,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 7
+    },
+    {
+      "tag": "blue",
+      "x": 7.605746,
+      "y": 16.962451,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 8
+    },
+    {
+      "tag": "blue",
+      "x": 5.234534,
+      "y": 13.678712,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 9
+    },
+    {
+      "tag": "blue",
+      "x": 4.24323,
+      "y": 9.751511,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 10
+    },
+    {
+      "tag": "blue",
+      "x": 4.771911,
+      "y": 5.73578,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 11
+    },
+    {
+      "tag": "blue",
+      "x": 6.745871,
+      "y": 2.198964,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "right",
+      "index": 12
+    },
+    {
+      "tag": "blue",
+      "x": 22.475,
+      "y": -9.125,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 0
+    },
+    {
+      "tag": "blue",
+      "x": 21.906,
+      "y": -6.264441,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 1
+    },
+    {
+      "tag": "blue",
+      "x": 20.285623,
+      "y": -3.839377,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 2
+    },
+    {
+      "tag": "blue",
+      "x": 17.860559,
+      "y": -2.219,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 3
+    },
+    {
+      "tag": "blue",
+      "x": 15.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 4
+    },
+    {
+      "tag": "blue",
+      "x": 12.139441,
+      "y": -2.219,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 5
+    },
+    {
+      "tag": "blue",
+      "x": 9.714377,
+      "y": -3.839377,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 6
+    },
+    {
+      "tag": "blue",
+      "x": 8.094,
+      "y": -6.264441,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 7
+    },
+    {
+      "tag": "blue",
+      "x": 7.525,
+      "y": -9.125,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 8
+    },
+    {
+      "tag": "blue",
+      "x": 8.094,
+      "y": -11.985559,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 9
+    },
+    {
+      "tag": "blue",
+      "x": 9.714377,
+      "y": -14.410623,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 10
+    },
+    {
+      "tag": "blue",
+      "x": 12.139441,
+      "y": -16.031,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 11
+    },
+    {
+      "tag": "blue",
+      "x": 15.0,
+      "y": -16.6,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 12
+    },
+    {
+      "tag": "blue",
+      "x": 17.860559,
+      "y": -16.031,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 13
+    },
+    {
+      "tag": "blue",
+      "x": 20.285623,
+      "y": -14.410623,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 14
+    },
+    {
+      "tag": "blue",
+      "x": 21.906,
+      "y": -11.985559,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "inner",
+      "circle": "left",
+      "index": 15
+    },
+    {
+      "tag": "yellow",
+      "x": 6.745871,
+      "y": -2.198964,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 0
+    },
+    {
+      "tag": "yellow",
+      "x": 4.771911,
+      "y": -5.73578,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 1
+    },
+    {
+      "tag": "yellow",
+      "x": 4.24323,
+      "y": -9.751511,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 2
+    },
+    {
+      "tag": "yellow",
+      "x": 5.234534,
+      "y": -13.678712,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 3
+    },
+    {
+      "tag": "yellow",
+      "x": 7.605746,
+      "y": -16.962451,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 4
+    },
+    {
+      "tag": "yellow",
+      "x": 11.021804,
+      "y": -19.13872,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 5
+    },
+    {
+      "tag": "yellow",
+      "x": 15.0,
+      "y": -19.9,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 6
+    },
+    {
+      "tag": "yellow",
+      "x": 18.978196,
+      "y": -19.13872,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 7
+    },
+    {
+      "tag": "yellow",
+      "x": 22.394254,
+      "y": -16.962451,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 8
+    },
+    {
+      "tag": "yellow",
+      "x": 24.765466,
+      "y": -13.678712,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 9
+    },
+    {
+      "tag": "yellow",
+      "x": 25.75677,
+      "y": -9.751511,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 10
+    },
+    {
+      "tag": "yellow",
+      "x": 25.228089,
+      "y": -5.73578,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 11
+    },
+    {
+      "tag": "yellow",
+      "x": 23.254129,
+      "y": -2.198964,
+      "z": 0.0,
+      "role": "circle_boundary",
+      "ring": "outer",
+      "circle": "left",
+      "index": 12
+    },
+    {
+      "tag": "orange",
+      "x": -5.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -5.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -2.5,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -2.5,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 25.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 25.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 30.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 30.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 35.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 35.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "exit_stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 40.0,
+      "y": -1.65,
+      "z": 0.0,
+      "role": "stop_lane_end_side"
+    },
+    {
+      "tag": "orange",
+      "x": 40.0,
+      "y": 1.65,
+      "z": 0.0,
+      "role": "stop_lane_end_side"
+    },
+    {
+      "tag": "orange",
+      "x": 40.0,
+      "y": -1.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange",
+      "x": 40.0,
+      "y": 0.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange",
+      "x": 40.0,
+      "y": 1.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange_big",
+      "x": 14.25,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 14.25,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 15.75,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 15.75,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "timekeeping_before_after"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+asurt_velodyne_sim_node:
+  ros__parameters:
+    host: "127.0.0.1"
+    port: 2000
+    role_name: "hero"
+    model: vlp32c
+    # Existing FSAI mounting point in ROS forward/left/up coordinates.
+    mount_x_m: 0.3755355179
+    mount_y_m: 0.0100316303
+    mount_z_m: 0.6965517998
+    frame_id: "velodyne"
+    base_frame_id: "base_link"
+    topic: "/velodyne_points"
+    channels: 32
+    range_m: 200.0
+    upper_fov_deg: 15.0
+    lower_fov_deg: -25.0
+    rotation_hz: 10.0
+    points_per_second: 600000
+    noise_stddev_m: 0.02
+    atmosphere_attenuation: 0.004
+    dropoff_general_rate: 0.02
+    dropoff_intensity_limit: 0.15
+    dropoff_zero_intensity: 0.1
+    publish_tf: true

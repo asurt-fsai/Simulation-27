@@ -1,0 +1,133 @@
+{
+  "event": "skidpad",
+  "rules": [
+    "2027 FSUK D4.1.1-D4.1.6",
+    "D4.3.3",
+    "D4.3.5",
+    "D4.3.6"
+  ],
+  "source_pdf_pages": [
+    1,
+    2
+  ],
+  "cone_handbook": {
+    "source": "FS-AI Dynamic Events Setup and Cones Specification, DE6.3.1 and Figure 3, pp.1,4",
+    "entry_and_exit": "orange (small)",
+    "before_and_after_timekeeping": "orange_big",
+    "note": "The handbook fixes cone roles but the figure is schematic; exact longitudinal positions use bounded simulation offsets in the metadata below."
+  },
+  "geometry": {
+    "type": "figure_eight_two_concentric_pairs",
+    "circle_centres_m": {
+      "right": [
+        15.0,
+        9.125
+      ],
+      "left": [
+        15.0,
+        -9.125
+      ]
+    },
+    "centre_separation_m": 18.25,
+    "inner_circle_diameter_m": 15.25,
+    "outer_circle_diameter_m": 21.25,
+    "painted_inner_radius_m": 7.625,
+    "painted_outer_radius_m": 10.625,
+    "inner_cone_centre_radius_m": 7.475,
+    "outer_cone_centre_radius_m": 10.775,
+    "centreline_radius_m": 9.125,
+    "driving_corridor_width_m": 3.0,
+    "inner_cones_per_circle": 16,
+    "outer_cones_per_circle": 13,
+    "intersection_start_finish_x_m": 15.0,
+    "entry_line_halfwidth_m": 1.5,
+    "exit_lane_end_x_m": 40.0,
+    "drive_sequence": [
+      "entry_forward",
+      "right_untimed_lap",
+      "right_timed_lap",
+      "left_untimed_lap",
+      "left_timed_lap",
+      "exit_forward"
+    ]
+  },
+  "staging": {
+    "frontmost_vehicle_point_target_m": [
+      0.0,
+      0.0
+    ],
+    "distance_before_start_finish_m": 15.0,
+    "heading_degrees_importer_local": 0.0,
+    "note": "D4.3.3 stages the foremost part, not the CARLA base_link. Use the actual FSAI footprint to stage the nose at x=0."
+  },
+  "stop": {
+    "required_stop_distance_after_timing_line_m": 25.0,
+    "exit_lane_endpoint_x_m": 40.0
+  },
+  "cone_assignment": "Simulation choice: blue on track left and yellow on right in CARLA XY. Right circle outer blue/inner yellow; left circle inner blue/outer yellow.",
+  "selected_parameters_not_given_in_rules": {
+    "radial_cone_centre_offset_outside_painted_lines_m": 0.15,
+    "entrance_exit_lane_cone_offset_m": 0.15,
+    "ordered_blue_yellow_entry_stations_for_importer_m": [
+      0,
+      5
+    ],
+    "small_orange_entry_stations_m": [
+      -5.0,
+      -2.5
+    ],
+    "small_orange_exit_stations_m": [
+      25.0,
+      30.0,
+      35.0,
+      40.0
+    ],
+    "stop_barrier_small_orange": [
+      [
+        40,
+        -1
+      ],
+      [
+        40,
+        0
+      ],
+      [
+        40,
+        1
+      ]
+    ],
+    "big_orange_offset_along_track_m": 0.75,
+    "outer_ring_occupied_arc_degrees": {
+      "right": [
+        320,
+        580
+      ],
+      "left": [
+        140,
+        400
+      ]
+    },
+    "orange_big_indicators": {
+      "timing_line_before_after": [
+        [
+          14.25,
+          -3.5
+        ],
+        [
+          14.25,
+          3.5
+        ],
+        [
+          15.75,
+          -3.5
+        ],
+        [
+          15.75,
+          3.5
+        ]
+      ],
+      "note": "Four big orange markers around timekeeping as required by DE6.3.1; exact offsets are schematic."
+    },
+    "note": "Figure 8 specifies placement counts, not exact azimuths, cone colours or offset in metres; these are reproducible simulation choices, not official coordinates. The 100 degree open wedges at each outer ring prevent cones blocking the other loop at the centre crossover."
+  }
+}

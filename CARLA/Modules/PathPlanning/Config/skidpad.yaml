@@ -1,0 +1,33 @@
+asurt_skidpad_planner:
+  ros__parameters:
+    use_sim_time: true
+    # Skidpad circles require repeated, spatially distributed mapped cones.
+    input_source: map
+    global_cones_topic: /map/global_cones
+    perception_topic: /perception_landmarks
+    odometry_topic: /odom
+    max_age_s: 2.0
+    teleport_distance_m: 8.0
+    planning_period_s: 0.5
+    max_cones: 160
+    lookahead_m: 22.0
+    max_lateral_m: 11.0
+    min_probability: 0.25
+    min_track_width_m: 2.0
+    max_track_width_m: 7.0
+    max_pair_along_m: 2.5
+    max_pair_gap_m: 10.0
+    max_first_pair_m: 8.0
+    max_first_lateral_m: 3.0
+    max_bend_rad: 1.15
+    sample_spacing_m: 0.5
+    blue_left: true
+    radius_m: 9.125
+    half_track_width_m: 1.5
+    radial_tolerance_m: 0.7
+    centre_separation_tolerance_m: 2.0
+    min_ring_cones_per_color: 4
+    min_arc_coverage_deg: 70.0
+    max_entry_distance_m: 25.0
+    max_entry_lateral_m: 2.8
+    samples_per_lap: 72

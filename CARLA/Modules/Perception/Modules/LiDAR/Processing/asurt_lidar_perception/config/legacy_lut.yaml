@@ -1,0 +1,47 @@
+# Stateful reproduction of original oldstack filter_algorithm='lut' defaults.
+# Historical geometric equations; quantized LUT keys, TTL and size bound added.
+asurt_lidar_perception_node:
+  ros__parameters:
+    pipeline_mode: "legacy_lut"
+    input_topic: "/velodyne_points"
+    filtered_topic: "/filtered_points"
+    markers_topic: "/cluster_markers"
+    landmarks_topic: "/lidar/cones"
+    output_frame_id: ""
+    # Old Filter.removeCar / removeGround, voxel and clustering settings.
+    legacy_car_x_min: -1.0
+    legacy_car_x_max: 1.0
+    legacy_car_y_min: -0.5
+    legacy_car_y_max: 0.5
+    legacy_ground_level: 0.2
+    legacy_point_num: 10
+    legacy_distance_threshold: 0.06
+    legacy_num_iterations: 200
+    legacy_horizontal_plane_gradient: 0.8
+    legacy_voxel_size: 0.03
+    legacy_cluster_distance_threshold: 0.2
+    legacy_cluster_min_size: 2
+    legacy_cluster_max_size: 100
+    legacy_max_input_points: 85000
+    # Original LUTBoundingBoxFilter config/params.yaml numeric defaults.
+    lut_max_distance: 20.0
+    lut_z_min: -2.0
+    lut_z_max: 2.0
+    lut_max_cone_lateral: 2.5
+    lut_max_track_half_width: 2.0
+    lut_cone_radius: 0.1
+    lut_cone_height: 0.3
+    lut_min_cone_points: 5
+    lut_l2_loss_threshold: 0.05
+    lut_lin_loss_percentage: 0.1
+    lut_resolution: 0.1
+    lut_ema_alpha: 0.2
+    lut_max_width_change: 0.2
+    lut_tolerance_multiplier: 5.0
+    lut_filter_margin: 1.5
+    lut_filter_x_margin_before: 1.0
+    lut_filter_x_margin_after: 2.0
+    # Explicit memory and stale-state limits; not present in original code.
+    lut_max_entries: 512
+    lut_ttl_frames: 80
+    lut_ttl_seconds: 6.0

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=CARLA System Manager
+Exec="/home/hassan/ASURT/tools/Control Center/launch.sh" novnc
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Science;Engineering;

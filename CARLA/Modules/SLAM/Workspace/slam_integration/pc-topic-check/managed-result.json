@@ -1,0 +1,31 @@
+{
+  "domain": 194,
+  "publishers": {
+    "/slam/path": 1,
+    "/map/global_cones": 1,
+    "/slam/camera/status": 1,
+    "/slam/lidar/odom": 1,
+    "/slam/lidar/normalization_status": 1,
+    "/slam/fusion/status": 1
+  },
+  "guarded_publishers": {
+    "/clock": 0,
+    "/odom": 0,
+    "/tf": 0,
+    "/tf_static": 0,
+    "/drive": 0,
+    "/cmd_vel": 0
+  },
+  "isolated_lego_tf_publishers": 3,
+  "other_module_pids_unchanged": {
+    "slam_trajectory": 2542969,
+    "slam_cone_map": 2542970,
+    "slam_lidar": 2542972,
+    "slam_lidar_odom": 2542973,
+    "slam_fusion": 2542976
+  },
+  "camera_restart": {
+    "old": 2542971,
+    "new": 2543167
+  }
+}

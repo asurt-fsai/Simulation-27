@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -eo pipefail
+if [[ $# -lt 1 || $# -gt 2 || ! "$1" =~ ^[a-z][a-z0-9_]+$ ]]; then
+    echo 'Usage: asurt dev-build ROS_PACKAGE [MODULE_ID]' >&2
+    exit 2
+fi
+if ! command -v colcon >/dev/null; then
+    echo 'Install the ROS build tools with sudo apt install python3-colcon-common-extensions build-essential.' >&2
+    exit 2
+fi
+package=$1
+systems="$ASURT_WORKSPACE/Simulation/Systems"
+if [[ -z "${ASURT_PORTABLE:-}" ]]; then
+    for relative in SLAM/Workspace/slam_integration \
+                    PathPlanning/Workspace/planning_integration \
+                    Control/Workspace/control_integration; do
+        setup="$ASURT_ROOT/Simulation/Systems/$relative/install/local_setup.bash"
+        if [[ -f "$setup" ]]; then source "$setup"; fi
+    done
+fi
+builds="$ASURT_WORKSPACE/build/$package"
+mkdir -p "$builds"
+output=$(mktemp -d "$builds/build.XXXXXX")
+base_paths=(
+    "$systems/SLAM/Modules"
+    "$systems/PathPlanning/Modules"
+    "$systems/Control/Modules"
+    "$systems/Perception/Adapters"
+    "$systems/Perception/Modules"
+    "$systems/Perception/Workspace/autonomy_integration/src/perception_zed_pkg"
+    "$systems/Perception/Workspace/autonomy_integration/vendor"
+    "$systems/Common/ROSUnderlays/fs-system-26-test-build/src"
+)
+if [[ "$package" == lego_loam_sr ]]; then
+    gtsam="$ASURT_ROOT/Simulation/Systems/SLAM/ThirdParty/gtsam-prefix/opt/ros/humble"
+    export CMAKE_PREFIX_PATH="$gtsam:${CMAKE_PREFIX_PATH:-}"
+fi
+packages=$(colcon list --base-paths "${base_paths[@]}" --names-only)
+if ! grep -Fxq "$package" <<< "$packages"; then
+    echo "Source for ROS package $package was not found under $systems." >&2
+    exit 2
+fi
+colcon --log-base "$output/log" build --base-paths "${base_paths[@]}" \
+    --packages-select "$package" --symlink-install \
+    --build-base "$output/build" --install-base "$output/install"
+if [[ $# == 2 ]]; then
+    python3 - "$2" "$output/install" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(os.environ["ASURT_ROOT"]) / "tools/RViz"))
+from module_control import select_developer_build
+
+select_developer_build(sys.argv[1], Path(sys.argv[2]))
+print(f"Selected the rebuilt {sys.argv[1]} in System Manager.")
+PY
+    exit
+fi
+printf '\nChoose these paths in System Manager → Module Settings.\n'
+printf 'ROS workspace setup script: %s\n' "$output/install/local_setup.bash"
+printf 'Executable directory: %s\n' "$output/install/$package/lib/$package"

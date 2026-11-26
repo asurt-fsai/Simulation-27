@@ -1,0 +1,477 @@
+{
+  "schema": "ASURT_CARLA_TrackImporter_2026",
+  "event": "acceleration",
+  "units": "m",
+  "coordinate_system": "local_CARLA_xy_x_forward_y_right",
+  "cones": [
+    {
+      "tag": "blue",
+      "x": 0.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 0.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 5.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 5.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 10.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 10.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 15.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 15.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 20.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 20.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 25.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 25.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 30.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 30.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 35.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 35.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 40.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 40.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 45.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 45.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 50.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 50.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 55.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 55.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 60.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 60.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 65.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 65.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 70.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 70.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "blue",
+      "x": 75.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "yellow",
+      "x": 75.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "timed_boundary"
+    },
+    {
+      "tag": "orange",
+      "x": -5.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -5.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -2.5,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": -2.5,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "entry_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 80.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 80.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 85.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 85.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 90.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 90.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 95.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 95.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 100.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 100.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 105.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 105.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 110.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 110.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 115.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 115.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 120.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 120.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stopping_lane"
+    },
+    {
+      "tag": "orange",
+      "x": 125.0,
+      "y": -1.9,
+      "z": 0.0,
+      "role": "stop_lane_end_side"
+    },
+    {
+      "tag": "orange",
+      "x": 125.0,
+      "y": 1.9,
+      "z": 0.0,
+      "role": "stop_lane_end_side"
+    },
+    {
+      "tag": "orange",
+      "x": 125.0,
+      "y": -1.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange",
+      "x": 125.0,
+      "y": 0.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange",
+      "x": 125.0,
+      "y": 1.0,
+      "z": 0.0,
+      "role": "stop_lane_terminal_barrier"
+    },
+    {
+      "tag": "orange_big",
+      "x": -0.75,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "start_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": -0.75,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "start_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 0.75,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "start_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 0.75,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "start_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 74.25,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "finish_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 74.25,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "finish_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 75.75,
+      "y": -3.5,
+      "z": 0.0,
+      "role": "finish_timekeeping_before_after"
+    },
+    {
+      "tag": "orange_big",
+      "x": 75.75,
+      "y": 3.5,
+      "z": 0.0,
+      "role": "finish_timekeeping_before_after"
+    }
+  ]
+}

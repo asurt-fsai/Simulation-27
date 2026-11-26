@@ -1,0 +1,16 @@
+build/
+install/
+log/
+.vscode/
+.idea/
+*.pyc
+__pycache__/
+.pytest_cache/
+.DS_Store
+artifacts/
+.venv/
+.wheelhouse/
+*.tar.gz
+*.tar.zst
+*.whl
+*.blend1

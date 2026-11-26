@@ -1,0 +1,8 @@
+# Linux x86-64, CPython 3.10. CUDA 12.8 and cuDNN 9.8 for ONNX Runtime.
+onnxruntime-gpu==1.20.2 --hash=sha256:dfba508f110ec062dedfd3032e6eee8cde325026e9d7c5792884e8b9d4ebb9c3
+nvidia-cuda-runtime-cu12==12.8.57 --hash=sha256:75342e28567340b7428ce79a5d6bb6ca5ff9d07b69e7ce00d2c7b4dc23eff0be
+nvidia-cublas-cu12==12.8.3.14 --hash=sha256:3f0e05e7293598cf61933258b73e66a160c27d59c4422670bf0b79348c04be44
+nvidia-cudnn-cu12==9.8.0.87 --hash=sha256:d6b02cd0e3e24aa31d0193a8c39fec239354360d7d81055edddb69f35d53a4c8
+nvidia-cufft-cu12==11.3.3.41 --hash=sha256:da650080ab79fcdf7a4b06aa1b460e99860646b176a43f6208099bdc17836b6a
+nvidia-curand-cu12==10.3.9.55 --hash=sha256:8387d974240c91f6a60b761b83d4b2f9b938b7e0b9617bae0f0dafe4f5c36b86
+nvidia-cuda-nvrtc-cu12==12.8.61 --hash=sha256:a0fa9c2a21583105550ebd871bd76e2037205d56f33f128e69f6d2a55e0af9ed

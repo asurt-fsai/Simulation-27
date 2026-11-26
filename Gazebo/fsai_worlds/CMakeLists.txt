@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.8)
+project(fsai_worlds)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY worlds models config DESTINATION share/${PROJECT_NAME})
+ament_package()

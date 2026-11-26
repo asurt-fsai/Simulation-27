@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fsai_gazebo</name>
+  <version>0.1.0</version>
+  <description>Gazebo physics and dynamics configuration for the ASURT FSAI simulator.</description>
+  <maintainer email="dev@asurt.eng.asu.edu">ASU RT</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

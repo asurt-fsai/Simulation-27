@@ -1,0 +1,529 @@
+"""ROS 2 discovery, bag metadata, and owned recording/playback jobs."""
+
+from concurrent.futures import CancelledError
+from contextlib import ExitStack, closing, contextmanager, suppress
+from copy import deepcopy
+import fcntl
+import os
+from pathlib import Path
+import pty
+from queue import Queue
+import random
+import re
+import shlex
+import shutil
+import signal
+import sqlite3
+import subprocess
+import tempfile
+import threading
+import time
+from uuid import uuid4
+
+import yaml
+
+MIB = 1024 ** 2
+DISK_RESERVE = 512 * MIB
+RAM_RESERVE = 1024 * MIB
+TOPIC = re.compile(r"/[A-Za-z_][A-Za-z_0-9]*(?:/[A-Za-z_][A-Za-z_0-9]*)*")
+DISPLAYS = {
+    "sensor_msgs/msg/PointCloud2": "PointCloud2",
+    "sensor_msgs/msg/Image": "Image",
+    "visualization_msgs/msg/MarkerArray": "MarkerArray",
+    "visualization_msgs/msg/Marker": "Marker",
+    "nav_msgs/msg/Path": "Path",
+    "nav_msgs/msg/Odometry": "Odometry",
+    "sensor_msgs/msg/LaserScan": "LaserScan",
+}
+REPLAY_SUPPORT = {"/tf", "/tf_static", "/clock"}
+
+
+def live_domain(session):
+    if not session or session.get("phase") != "ready":
+        raise ValueError("Start CARLA and wait for its session to be ready.")
+    try:
+        return int(session["ros_domain_id"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("The simulator did not report a ROS domain. Restart it from System Manager.") from None
+
+
+def ros_environment(domain):
+    return dict(os.environ, ROS_DOMAIN_ID=str(domain), ROS_LOCALHOST_ONLY="1",
+                RMW_IMPLEMENTATION="rmw_fastrtps_cpp", PYTHONUNBUFFERED="1")
+
+
+@contextmanager
+def ros_node(domain):
+    import rclpy
+    from rclpy.context import Context
+    from rclpy.signals import SignalHandlerOptions
+
+    # The packaged launcher exports the local-only DDS settings before importing ROS.
+    context = Context()
+    rclpy.init(args=[], context=context, domain_id=domain, signal_handler_options=SignalHandlerOptions.NO)
+    try:
+        node = rclpy.create_node("asurt_bags_" + uuid4().hex[:10], context=context,
+                                 enable_rosout=False, start_parameter_services=False)
+        try:
+            yield node
+        finally:
+            node.destroy_node()
+    finally:
+        context.try_shutdown()
+
+
+def discover(domain):
+    with ros_node(domain) as node:
+        time.sleep(.65)
+        return {name: (", ".join(types), node.count_publishers(name))
+                for name, types in sorted(node.get_topic_names_and_types())
+                if TOPIC.fullmatch(name) and name not in ("/parameter_events", "/rosout")}
+
+
+@contextmanager
+def exclusive(path):
+    with path.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError(f"Another ASURT process owns {path.stem}.") from None
+        yield lock.fileno()
+
+
+@contextmanager
+def replay_domain(log_root, current_session):
+    active = current_session()
+    excluded = {int(os.environ.get("ROS_DOMAIN_ID", "0"))}
+    if active and "ros_domain_id" in active:
+        excluded.add(int(active["ros_domain_id"]))
+    choices = sorted(set(range(1, 102)) - excluded)
+    random.shuffle(choices)
+    for domain in choices:
+        with (log_root / f"ros-domain-{domain}.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            with ros_node(domain) as node:
+                time.sleep(.65)
+                if any(name != node.get_name() for name in node.get_node_names()):
+                    continue
+            yield domain, lock.fileno()
+            return
+    raise ValueError("No unused local ROS domain is available for playback.")
+
+
+def read_bag(path):
+    path = Path(path).expanduser().resolve(strict=True)
+    if path.name == "metadata.yaml":
+        path = path.parent
+    if not path.is_dir():
+        raise ValueError("Choose a bag directory or its metadata.yaml file.")
+    try:
+        metadata = yaml.safe_load((path / "metadata.yaml").read_text(encoding="utf-8"))
+        info = metadata["rosbag2_bagfile_information"]
+        files = [(path / name).resolve(strict=True) for name in info["relative_file_paths"]]
+        topics = {item["topic_metadata"]["name"]:
+                  (item["topic_metadata"]["type"], int(item["message_count"]))
+                  for item in info["topics_with_message_count"]}
+        int(info["message_count"])
+    except FileNotFoundError as error:
+        raise ValueError(f"The bag is missing {Path(error.filename).name}.") from error
+    except (KeyError, TypeError, ValueError, yaml.YAMLError) as error:
+        raise ValueError(f"Invalid ROS bag metadata in {path}.") from error
+    if not files or any(not p.is_relative_to(path) or not p.is_file() for p in files):
+        raise ValueError("The bag's segments must be files inside the selected folder.")
+    return path, metadata, info, files, topics
+
+
+def available_space(path, ram=False):
+    free = shutil.disk_usage(path).free
+    if ram:
+        line = next(line for line in Path("/proc/meminfo").read_text().splitlines()
+                    if line.startswith("MemAvailable:"))
+        free = min(free, int(line.split()[1])*1024)
+    return free
+
+
+def stage_bag(details, target, ram, job):
+    """Expand file compression into a disposable validated copy, leaving source files read-only."""
+    original, metadata, info, files, _ = details
+    file_compressed = str(info.get("compression_mode", "")).lower() == "file"
+    if not ram and not file_compressed:
+        return original
+    if (info.get("storage_identifier") != "sqlite3"
+            or (file_compressed and info.get("compression_format") != "zstd")
+            or (ram and str(info.get("compression_mode", "")).lower() == "message")):
+        raise ValueError("Staging supports plain sqlite3 or file-compressed sqlite3/zstd. Try Disk for other uncompressed formats.")
+    if file_compressed and not shutil.which("zstd"):
+        raise ValueError("Install the Ubuntu zstd package to play file-compressed bags.")
+    reserve = RAM_RESERVE if ram else DISK_RESERVE
+    size = sum(p.stat().st_size for p in files)
+    if available_space(target, ram) - reserve < size * (1.6 if file_compressed else 1):
+        raise ValueError("Insufficient free RAM or tmpfs. Choose Disk." if ram else
+                         "Insufficient free disk space for temporary expanded bag segments.")
+    output = deepcopy(metadata)
+    out_info = output["rosbag2_bagfile_information"]
+    entries = out_info.get("files", [])
+    total = 0
+    names = []
+    for index, source in enumerate(files):
+        job.check_cancel()
+        job.state(f"Preparing {'RAM' if ram else 'Disk'} · segment {index+1}/{len(files)}")
+        name = f"bag_{index}.db3"
+        destination = target / name
+        if file_compressed:
+            process = subprocess.Popen(["zstd", "-dc", "--", source], stdout=subprocess.PIPE)
+            stream = process.stdout
+        else:
+            process, stream = None, source.open("rb")
+        try:
+            with stream, destination.open("wb") as out:
+                while data := stream.read(MIB):
+                    job.check_cancel()
+                    if available_space(target, ram) - reserve < len(data):
+                        raise ValueError("Stopped staging to preserve available memory or disk space.")
+                    out.write(data)
+            if process and process.wait(timeout=10):
+                raise ValueError(f"Could not decompress {source.name}.")
+        finally:
+            if process and process.poll() is None:
+                process.terminate()
+                process.wait()
+        with closing(sqlite3.connect(destination.as_uri() + "?mode=ro", uri=True)) as db:
+            count = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        total += count
+        if index < len(entries):
+            if count != int(entries[index]["message_count"]):
+                raise ValueError(f"Message count mismatch in {source.name}.")
+            entries[index]["path"] = name
+        names.append(name)
+        job.log(f"Verified {source.name} · {count:,} messages")
+    if total != int(info["message_count"]):
+        raise ValueError("Staged bag message count differs from the source metadata.")
+    out_info.update(compression_mode="", compression_format="", relative_file_paths=names)
+    (target / "metadata.yaml").write_text(yaml.safe_dump(output, sort_keys=False))
+    return target
+
+
+def recorded_frame(path, topics, manual):
+    if manual:
+        return manual, ""
+    from rclpy.serialization import deserialize_message
+    from rosidl_runtime_py.utilities import get_message
+    _, _, info, segments, _ = read_bag(path)
+    frames = {}
+    if info.get("storage_identifier") == "sqlite3" and not info.get("compression_mode"):
+        for segment in segments[:2]:
+            with closing(sqlite3.connect(segment.as_uri() + "?mode=ro", uri=True)) as db:
+                for topic in topics:
+                    kind = topics[topic][0]
+                    if kind not in DISPLAYS and topic not in ("/tf", "/tf_static"):
+                        continue
+                    if topic in frames:
+                        continue
+                    rows = db.execute(
+                        "SELECT messages.data FROM messages JOIN topics ON topics.id=messages.topic_id "
+                        "WHERE topics.name=? ORDER BY timestamp LIMIT 3", (topic,))
+                    for (data,) in rows:
+                        try:
+                            msg = deserialize_message(data, get_message(kind))
+                            if kind == "tf2_msgs/msg/TFMessage":
+                                frame = msg.transforms[0].header.frame_id if msg.transforms else ""
+                            elif kind == "visualization_msgs/msg/MarkerArray":
+                                frame = msg.markers[0].header.frame_id if msg.markers else ""
+                            else:
+                                frame = msg.header.frame_id
+                            if frame:
+                                frames[topic] = frame.lstrip("/")
+                                break
+                        except (AttributeError, ImportError, RuntimeError, ValueError):
+                            break
+    if "/tf" in frames or "/tf_static" in frames:
+        return next((f for t, f in frames.items() if topics[t][0] == "nav_msgs/msg/Odometry"),
+                    frames.get("/tf", frames.get("/tf_static"))), ""
+    frame = next((f for t, f in frames.items() if topics[t][0] != "sensor_msgs/msg/Image"),
+                 next(iter(frames.values()), "map"))
+    warning = "No recorded TF. Choose a sensor frame if its display is blank." if any(
+        value[0] in DISPLAYS and value[0] != "sensor_msgs/msg/Image" for value in topics.values()) else ""
+    return frame, warning
+
+
+def rviz_config(path, topics, fixed_frame):
+    displays = []
+    for topic, (kind, _) in topics.items():
+        if plugin := DISPLAYS.get(kind):
+            topic_config = {"Value": topic, "Reliability Policy": "Best Effort",
+                            "Durability Policy": "Volatile", "History Policy": "Keep Last", "Depth": 5}
+            display = {"Class": f"rviz_default_plugins/{plugin}", "Name": topic,
+                       "Enabled": True, "Value": True, "Topic": topic_config}
+            if plugin == "PointCloud2":
+                display.update({"Style": "Points", "Size (Pixels)": 2, "Color Transformer": "Intensity"})
+            displays.append(display)
+    if any(t in topics for t in ("/tf", "/tf_static")):
+        displays.append({"Class": "rviz_default_plugins/TF", "Name": "TF", "Enabled": False})
+    config = {"Panels": [{"Class": "rviz_common/Displays", "Name": "Displays"},
+                         {"Class": "rviz_common/Time", "Name": "Time"}],
+              "Visualization Manager": {"Class": "", "Displays": displays, "Enabled": True,
+                                        "Global Options": {"Fixed Frame": fixed_frame},
+                                        "Tools": [{"Class": "rviz_default_plugins/Interact"}],
+                                        "Views": {"Current": {"Class": "rviz_default_plugins/Orbit", "Distance": 15}}}}
+    path.write_text(yaml.safe_dump(config, sort_keys=False))
+
+
+class Job:
+    def __init__(self, emit):
+        self.emit = emit
+        self.stop = threading.Event()
+        self.commands = Queue()
+        self.readers = []
+
+    def state(self, text):
+        self.emit("state", text)
+
+    def log(self, text):
+        self.emit("log", text)
+
+    def check_cancel(self):
+        if self.stop.is_set():
+            raise CancelledError()
+
+    def start(self, args, env, locks):
+        self.log("$ " + shlex.join(map(str, args)))
+        master, slave = pty.openpty()
+        try:
+            process = subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL,
+                                       stdout=slave, stderr=slave, start_new_session=True, pass_fds=locks)
+        except BaseException:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
+
+        def reader():
+            with os.fdopen(master, "r", errors="replace") as stream:
+                with suppress(OSError):
+                    for line in stream:
+                        self.log(line.rstrip())
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        self.readers.append(thread)
+        return process
+
+    def flush_output(self):
+        for reader in self.readers:
+            reader.join(timeout=1)
+
+
+def stop_process(process, timeout=15):
+    if process is None or process.poll() is not None:
+        return
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGINT)
+    process.wait(timeout=timeout)
+
+
+def inspect_bag(path, env=None):
+    details = read_bag(path)
+    subprocess.run(["ros2", "bag", "info", details[0]], env=env, check=True, capture_output=True, text=True, timeout=35)
+    return details
+
+
+def record_job(job, log_root, session, current_session, folder, name, topics, sim_time):
+    domain = live_domain(session)
+    if not topics or any(not TOPIC.fullmatch(topic) for topic in topics):
+        raise ValueError("Select at least one valid ROS topic.")
+    if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}", name):
+        raise ValueError("Use a bag name made of letters, digits, underscores, dots or hyphens.")
+    if not folder.strip():
+        raise ValueError("Choose a destination folder for the recording.")
+    folder = Path(folder).expanduser().resolve()
+    if folder.is_relative_to(Path("/dev/shm")):
+        raise ValueError("Choose a persistent disk folder for the recording.")
+    folder.mkdir(parents=True, exist_ok=True)
+    filesystem = subprocess.check_output(["stat", "-f", "-c", "%T", folder], text=True).strip()
+    if filesystem in {"tmpfs", "ramfs"} or not os.access(folder, os.W_OK):
+        raise ValueError("Choose a writable folder on persistent storage.")
+    destination = folder / name
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("A bag with that name already exists.")
+    if available_space(folder) < DISK_RESERVE:
+        raise ValueError("At least 512 MiB of free disk space is required.")
+    env = ros_environment(domain)
+    with exclusive(log_root / "bag-recorder.lock") as lock:
+        job.state(f"Checking live topics · ROS domain {domain}")
+        graph = discover(domain)
+        missing = [name for name in topics if not graph.get(name, ("", 0))[1]]
+        if sim_time and not graph.get("/clock", ("", 0))[1]:
+            missing.append("/clock" if "/clock" in topics else "/clock (simulation time)")
+        if missing:
+            raise ValueError("No active publisher for " + ", ".join(dict.fromkeys(missing)))
+        active = current_session()
+        if not active or active["state"] != session["state"] or live_domain(active) != domain:
+            raise ValueError("The simulator session changed. Refresh its topics and try again.")
+        job.check_cancel()
+        node_name = "asurt_bag_recorder"
+        command = ["ros2", "bag", "record", "--node-name", node_name, "--compression-mode", "file",
+                   "--compression-format", "zstd", "--compression-threads", "1",
+                   "--max-cache-size", "67108864", "--max-bag-size", "1500000000",
+                   "-o", destination]
+        if sim_time:
+            command.append("--use-sim-time")
+        process = job.start([*command, *topics], env, (lock,))
+        try:
+            job.state(f"Starting recorder · domain {domain}")
+            start = time.monotonic()
+            with ros_node(domain) as node:
+                while process.poll() is None and not job.stop.wait(.4):
+                    active = current_session()
+                    if not active or active["state"] != session["state"]:
+                        job.log("The simulator session ended.")
+                        break
+                    free = available_space(folder)
+                    if free < DISK_RESERVE:
+                        job.log("Low disk space. Finalizing the bag.")
+                        break
+                    seconds = time.monotonic() - start
+                    ready = node_name in node.get_node_names() and destination.is_dir()
+                    if ready:
+                        size = 0
+                        for segment in destination.iterdir():
+                            # Compression can replace a segment between listing and stat.
+                            with suppress(FileNotFoundError):
+                                size += segment.stat().st_size
+                        job.state(f"Recording · {seconds:.0f}s · {size/MIB:.1f} MiB · {free/MIB:.0f} MiB free"
+                                  f" · ~{size/MIB/seconds:.1f} MiB/s on disk")
+                    elif seconds > 20:
+                        raise RuntimeError("The recorder did not appear on the live ROS graph. Check its terminal.")
+        finally:
+            job.state("Finalizing and verifying the recording")
+            # File compression may take time. Allow a graceful interrupt to finish.
+            stop_process(process, timeout=None)
+        if job.stop.is_set() and not destination.exists():
+            raise CancelledError()
+        if process.returncode not in (0, -signal.SIGINT):
+            raise RuntimeError(f"Recorder exited with code {process.returncode}. Check the terminal and {destination}.")
+        _, _, info, _, contents = inspect_bag(destination, env)
+        empty = [topic for topic in topics if not contents.get(topic, ("", 0))[1]]
+        if not info["message_count"]:
+            raise ValueError(f"Bag retained at {destination}. No messages were recorded.")
+        for topic in topics:
+            job.log(f"{topic} · {contents.get(topic, ('', 0))[1]:,} messages")
+        warning = f" · no messages: {', '.join(empty)}" if empty else ""
+        job.emit("saved", destination)
+        job.state(f"Saved {info['message_count']:,} messages · {destination}{warning}")
+
+
+def play_job(job, log_root, current_session, path, ram, rate, start_paused, requested, frame):
+    from rclpy.executors import SingleThreadedExecutor
+    from rosbag2_interfaces.srv import GetRate, IsPaused, Pause, Resume, SetRate
+
+    details = inspect_bag(path)
+    selected = {name: value for name, value in details[-1].items()
+                if value[1] and (requested is None or name in requested)}
+    if not selected:
+        raise ValueError("Select at least one topic containing messages or enable All recorded topics.")
+    duration = details[2].get("duration", {}).get("nanoseconds", 0) / 1e9
+    with exclusive(log_root / "bag-player.lock") as play_lock:
+        cache_parent = Path("/dev/shm") if ram else log_root
+        with tempfile.TemporaryDirectory(prefix="asurt-bag-", dir=cache_parent) as temporary:
+            target = Path(temporary)
+            job.log(f"Source bag: {details[0]}")
+            source = stage_bag(details, target, ram, job)
+            fixed_frame, warning = recorded_frame(source, selected, frame)
+            if warning:
+                job.log(warning)
+            has_clock = "/clock" in selected
+            job.log(f"RViz fixed frame: {fixed_frame}. " +
+                    ("Using the bag's recorded clock." if has_clock else "Using wall time (bag has no recorded clock)."))
+            config = target / "replay.rviz"
+            rviz_config(config, selected, fixed_frame)
+            with replay_domain(log_root, current_session) as (domain, domain_lock):
+                job.check_cancel()
+                env = ros_environment(domain)
+                locks = (play_lock, domain_lock)
+                job.state(f"Starting RViz and player · isolated ROS domain {domain}")
+                view = player = None
+                try:
+                    view_name = "asurt_bag_rviz"
+                    view = job.start(["rviz2", "-d", config, "--ros-args", "-r",
+                                      f"__node:={view_name}", "-p",
+                                      f"use_sim_time:={'true' if has_clock else 'false'}"], env, locks)
+                    # The recorded clock is replayed as-is. Never synthesize a second clock.
+                    command = ["ros2", "bag", "play", source, "--start-paused", "--rate", str(rate),
+                               "--disable-keyboard-controls", "--read-ahead-queue-size", "256",
+                               "--topics", *selected]
+                    player = job.start(command, env, locks)
+                    with ros_node(domain) as node, ExitStack() as resources:
+                        executor = SingleThreadedExecutor(context=node.context)
+                        resources.callback(executor.shutdown)
+                        executor.add_node(node)
+                        services = {name: node.create_client(kind, "/rosbag2_player/" + name)
+                                    for name, kind in {"is_paused": IsPaused, "resume": Resume, "pause": Pause,
+                                                       "set_rate": SetRate, "get_rate": GetRate}.items()}
+
+                        def call(name, request):
+                            future = services[name].call_async(request)
+                            executor.spin_until_future_complete(future, timeout_sec=2)
+                            if not future.done() or future.result() is None:
+                                services[name].remove_pending_request(future)
+                                raise RuntimeError(f"Player did not answer {name}.")
+                            return future.result()
+
+                        deadline = time.monotonic() + 75
+                        expected = [topic for topic, (kind, _) in selected.items() if kind in DISPLAYS]
+                        while True:
+                            job.check_cancel()
+                            if player.poll() is not None or view.poll() is not None:
+                                raise RuntimeError("The player or RViz exited while starting. Check the playback terminal.")
+                            graph_ready = (view_name in node.get_node_names()
+                                           and all(node.count_subscribers(topic) for topic in expected)
+                                           and all(node.count_publishers(topic) for topic in selected))
+                            if graph_ready and all(client.service_is_ready() for client in services.values()):
+                                break
+                            if time.monotonic() >= deadline:
+                                raise RuntimeError("Player or RViz topic discovery timed out. Check the playback terminal.")
+                            job.stop.wait(.2)
+                        if not start_paused:
+                            call("resume", Resume.Request())
+                        paused = call("is_paused", IsPaused.Request()).paused
+                        if paused != start_paused:
+                            raise RuntimeError("Player did not enter the requested playback state.")
+                        job.emit("paused", paused)
+                        offset, last = 0., time.monotonic()
+                        while player.poll() is None:
+                            if job.stop.wait(.15):
+                                break
+                            if view.poll() is not None:
+                                raise RuntimeError("RViz closed. Playback stopped.")
+                            now = time.monotonic()
+                            if not paused:
+                                offset = min(duration, offset + (now - last)*rate)
+                            last = now
+                            while not job.commands.empty():
+                                command, value = job.commands.get_nowait()
+                                if command == "rate":
+                                    if not call("set_rate", SetRate.Request(rate=value)).success:
+                                        job.log(f"The player refused speed {value:g}×.")
+                                    rate = call("get_rate", GetRate.Request()).rate
+                                else:
+                                    requested_pause = command == "pause"
+                                    call(command, Pause.Request() if requested_pause else Resume.Request())
+                                    paused = call("is_paused", IsPaused.Request()).paused
+                                    if paused != requested_pause:
+                                        job.log(f"The player did not confirm {command}.")
+                                    job.emit("paused", paused)
+                            job.state(f"{'Paused' if paused else 'Playing'} · {rate:g}× · "
+                                      f"~{offset:.1f}/{duration:.1f}s · domain {domain}")
+                        if player.poll() not in (None, 0):
+                            raise RuntimeError("The bag player exited with an error. Check the playback terminal.")
+                        job.state("Playback stopped" if job.stop.is_set() else "Playback complete")
+                finally:
+                    for process in (player, view):
+                        try:
+                            stop_process(process)
+                        except subprocess.TimeoutExpired:
+                            # Leave the job's lock held by the child if it has not exited.
+                            # Do not remove its staged source while it can still be reading it.
+                            job.state("Waiting for the playback process to exit")
+                            process.wait()

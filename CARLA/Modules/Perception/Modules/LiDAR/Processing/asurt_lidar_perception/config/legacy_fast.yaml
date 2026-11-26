@@ -1,0 +1,23 @@
+asurt_lidar_perception_node:
+  ros__parameters:
+    pipeline_mode: "fast"
+    input_topic: "/velodyne_points"
+    filtered_topic: "/filtered_points"
+    markers_topic: "/cluster_markers"
+    landmarks_topic: "/lidar/cones"
+    max_forward_m: 24.0
+    max_lateral_m: 10.0
+    min_z_m: -2.0
+    max_z_m: 1.8
+    voxel_size_m: 0.055
+    cluster_radius_m: 0.25
+    min_cluster_points: 4
+    max_cluster_points: 220
+    min_cone_height_m: 0.065
+    max_cone_height_m: 0.46
+    max_cone_width_m: 0.44
+    ground_margin_m: 0.055
+    use_legacy_cone_fit: true
+    max_input_points: 85000
+    # Never publish a blue/yellow label from LiDAR-only geometry.
+    output_frame_id: ""  # empty means keep original sensor frame

@@ -1,0 +1,18 @@
+asurt_goal_pose_planner:
+  ros__parameters:
+    use_sim_time: true
+    goal_topic: /goal_pose
+    odometry_topic: /odom
+    path_topic: /planning/goal_pose/path
+    planning_period_s: 0.15
+    max_odom_age_s: 0.5
+    max_goal_click_age_s: 1.5
+    base_link_goal_tolerance_s: 0.25
+    teleport_distance_m: 8.0
+    wheelbase_m: 1.575
+    max_steer_rad: 0.45
+    path_resolution_m: 0.3
+    max_path_length_m: 100.0
+    max_goal_distance_m: 50.0
+    goal_position_tolerance_m: 0.65
+    goal_heading_tolerance_rad: 0.45

@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!--
+  Passive RViz-only outline of the existing CARLA FSAI hero.
+  Single base_link avoids creating or requiring extra TF frame publishers.
+  Wheel centres and radius and chassis dimensions originate from
+  Simulation/Gazebo/Source/fsai_simulation/fsai_description/urdf/fsaiurdf.urdf.
+  Primitives are schematic, not a replacement for the CARLA render model.
+  REP-103: x forward, y left, z up, all dimensions in metres.
+-->
+<robot name="asurt_fsai_rviz_preview">
+  <material name="asurt_blue"><color rgba="0.04 0.49 0.82 1"/></material>
+  <material name="asurt_nose"><color rgba="0.94 0.62 0.12 1"/></material>
+  <material name="asurt_dark"><color rgba="0.075 0.10 0.14 1"/></material>
+  <material name="asurt_wheel"><color rgba="0.035 0.038 0.045 1"/></material>
+  <link name="base_link">
+    <visual name="chassis">
+      <origin xyz="0.05 0 0.25" rpy="0 0 0"/>
+      <geometry><box size="2.15 0.77 0.22"/></geometry>
+      <material name="asurt_blue"/>
+    </visual>
+    <visual name="front_nose">
+      <origin xyz="1.02 0 0.22" rpy="0 0 0"/>
+      <geometry><box size="0.64 0.36 0.14"/></geometry>
+      <material name="asurt_nose"/>
+    </visual>
+    <visual name="cockpit">
+      <origin xyz="-0.18 0 0.44" rpy="0 0 0"/>
+      <geometry><box size="0.67 0.46 0.25"/></geometry>
+      <material name="asurt_dark"/>
+    </visual>
+    <visual name="rear_cover">
+      <origin xyz="-0.85 0 0.38" rpy="0 0 0"/>
+      <geometry><box size="0.48 0.74 0.22"/></geometry>
+      <material name="asurt_blue"/>
+    </visual>
+    <visual name="front_left_wheel">
+      <origin xyz="0.737855 0.586923 0.247939" rpy="1.570796327 0 0"/>
+      <geometry><cylinder radius="0.25650" length="0.22869"/></geometry>
+      <material name="asurt_wheel"/>
+    </visual>
+    <visual name="front_right_wheel">
+      <origin xyz="0.738269 -0.557125 0.246875" rpy="1.570796327 0 0"/>
+      <geometry><cylinder radius="0.25650" length="0.22869"/></geometry>
+      <material name="asurt_wheel"/>
+    </visual>
+    <visual name="rear_left_wheel">
+      <origin xyz="-0.794437 0.586923 0.247938" rpy="1.570796327 0 0"/>
+      <geometry><cylinder radius="0.25650" length="0.22869"/></geometry>
+      <material name="asurt_wheel"/>
+    </visual>
+    <visual name="rear_right_wheel">
+      <origin xyz="-0.794059 -0.552726 0.246700" rpy="1.570796327 0 0"/>
+      <geometry><cylinder radius="0.25650" length="0.22869"/></geometry>
+      <material name="asurt_wheel"/>
+    </visual>
+  </link>
+</robot>

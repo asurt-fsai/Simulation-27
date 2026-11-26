@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.ps1 text eol=lf
+CARLA/Release/asurt text eol=lf
+CARLA/Release/dev-build text eol=lf

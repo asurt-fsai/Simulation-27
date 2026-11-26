@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>asurt_autonomous_control</name>
+  <version>0.1.0</version>
+  <description>Autonomous path following for the ASURT CARLA simulator.</description>
+  <maintainer email="team@asu-racing.com">ASURT</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>asurt_pure_pursuit_control</exec_depend>
+  <exec_depend>asurt_stanley_control</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ackermann_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

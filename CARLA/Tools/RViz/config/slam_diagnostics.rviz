@@ -1,0 +1,196 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Help Height: 65
+    Property Tree Widget:
+      Expanded: []
+    Tree Height: 460
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ''
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: FlatAsphalt map-ground plane (z=0)
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 50
+      Color: 130; 130; 130
+      Alpha: 0.35
+      Reference Frame: map
+      Plane: XY
+      Offset:
+        X: 0
+        Y: 0
+        Z: -0.02
+    - Class: rviz_default_plugins/RobotModel
+      Name: FSAI | map-ground aligned preview
+      Enabled: true
+      Description Source: File
+      Description File: /home/hassan/ASURT/Simulation/Systems/SLAM/Visualization/fsai_vehicle_map_ground_preview.urdf
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+      Update Interval: 0
+      TF Prefix: ''
+    - Class: rviz_default_plugins/MarkerArray
+      Name: SLAM | Estimated cone landmarks
+      Enabled: true
+      Topic:
+        Value: /map/global_cones_markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Path
+      Name: SLAM | Vehicle trajectory
+      Enabled: true
+      Topic:
+        Value: /slam/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 25; 220; 200
+      Line Style: Lines
+      Line Width: 0.08
+    - Class: rviz_default_plugins/Pose
+      Name: SLAM | Vehicle odometry pose
+      Enabled: true
+      Topic:
+        Value: /slam/pose
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Shape: Arrow
+      Color: 240; 240; 240
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Name: Camera | Repeated-cone corrected vehicle pose
+      Enabled: true
+      Topic:
+        Value: /slam/camera/pose
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Path
+      Name: Camera | Corrected poses path
+      Enabled: true
+      Topic:
+        Value: /slam/camera/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 246; 173; 84
+      Line Style: Lines
+      Line Width: 0.06
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Camera | Confirmed colour landmarks (map)
+      Enabled: true
+      Topic:
+        Value: /slam/camera/map_markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Name: Fusion | Corrected vehicle pose (validated LiDAR odometry)
+      Enabled: true
+      Topic:
+        Value: /slam/fusion/pose
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Fusion | Shared ZED + Velodyne cones (local)
+      Enabled: true
+      Topic:
+        Value: /slam/fusion/markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Fusion | Confirmed paired-cone map (odom anchored)
+      Enabled: true
+      Topic:
+        Value: /slam/fusion/global_cones_markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Odometry
+      Name: LiDAR | LeGO-LOAM odometry (separate frame)
+      Enabled: false
+      Topic:
+        Value: /slam/lidar/odom
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/PointCloud2
+      Name: LiDAR | LeGO-LOAM cone map (separate frame)
+      Enabled: false
+      Topic:
+        Value: /slam/lidar/cone_map
+        History Policy: Keep Last
+        Depth: 2
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Queue Size: 2
+      Style: Points
+      Size (Pixels): 2
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Perception | Current local cone candidates
+      Enabled: true
+      Topic:
+        Value: /zed/zed_node/cone_markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/PointCloud2
+      Name: LiDAR | Filtered cloud (optional)
+      Enabled: false
+      Topic:
+        Value: /filtered_points
+        History Policy: Keep Last
+        Depth: 2
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Queue Size: 2
+      Style: Points
+      Size (Pixels): 1
+    - Class: rviz_default_plugins/TF
+      Name: Existing CARLA vehicle / sensor TF
+      Enabled: false
+  Global Options:
+    Background Color: 24; 31; 42
+    Fixed Frame: map
+    Frame Rate: 12
+  Name: root
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 12
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.35
+      Pitch: 0.9
+      Target Frame: base_link
+      Yaw: 0.0
+      Value: Orbit (rviz)
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+  Value: true
+Window Geometry:
+  Width: 1200
+  Height: 800

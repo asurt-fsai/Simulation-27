@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -eo pipefail
+root="${ASURT_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+export ASURT_ROOT="$root"
+export ASURT_WORKSPACE="${ASURT_WORKSPACE:-${root%/*}/workspace}"
+export ASURT_STATE_ROOT="${ASURT_STATE_ROOT:-$HOME/.local/share/asurt/state}"
+export ASURT_PORTABLE=1
+export ASURT_PROFILE="$(cat "$root/.asurt-platform")"
+export ROS_DOMAIN_ID="${ASURT_ROS_DOMAIN_ID:-46}"
+export ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export PYTHONUNBUFFERED=1
+source /opt/ros/humble/setup.bash
+for relative in \
+    Simulation/Systems/Common/ROSUnderlays/fs-system-26-test-build \
+    Simulation/CARLA/Bridge/Carla_ASU_Bridge \
+    Simulation/Systems/Perception/Workspace/autonomy_integration \
+    Simulation/Systems/SLAM/Workspace/slam_integration \
+    Simulation/Systems/PathPlanning/Workspace/planning_integration \
+    Simulation/Systems/Control/Workspace/control_integration; do
+    source "$root/$relative/install/local_setup.bash"
+done
+export ASURT_PERCEPTION_ENV="$root/Simulation/Systems/Perception/Workspace/autonomy_integration"
+export LD_LIBRARY_PATH="$root/client/carla:$root/Simulation/Systems/SLAM/ThirdParty/gtsam-prefix/opt/ros/humble/lib:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="$root/client:${PYTHONPATH:-}"
+ort_cpu="$root/Simulation/Systems/Perception/Dependencies/onnxruntime"
+cuda_root="${ASURT_RELEASE_CUDA_ROOT-$ASURT_STATE_ROOT/inference-cuda}"
+export ASURT_INFERENCE_BACKEND=cpu ASURT_CUDA_SITE=
+if [[ -n "$cuda_root" && -d "$cuda_root/onnxruntime" && ${CUDA_VISIBLE_DEVICES-available} != -1 && ${CUDA_VISIBLE_DEVICES-available} != "" ]]; then
+    export ASURT_INFERENCE_BACKEND=cuda ASURT_CUDA_SITE="$cuda_root"
+    if [[ -d /usr/lib/wsl/lib ]]; then
+        export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
+    fi
+    for library_dir in "$cuda_root"/nvidia/*/lib; do
+        export LD_LIBRARY_PATH="$library_dir:$LD_LIBRARY_PATH"
+    done
+fi
+export PYTHONPATH="${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu:$PYTHONPATH"
+action="${1:-start}"
+shift || true
+launch="$root/Simulation/CARLA/Launchers"
+if [[ "$action" == exec ]]; then
+    exec "$@"
+fi
+if [[ "$action" == mcp ]]; then
+    exec /usr/bin/python3 "$root/libexec/asurt-mcp/server.py" "$@"
+fi
+if [[ "$action" == dev-build ]]; then
+    exec bash "$root/bin/dev-build" "$@"
+fi
+if [[ "$action" == workspace ]]; then
+    printf '%s\n' "$ASURT_WORKSPACE"
+    exit
+fi
+if [[ "$action" == check ]]; then
+    /usr/bin/python3 - <<'PY'
+import carla
+import carla_telemetry.manual_control
+import rclpy
+import tkinter
+import yaml
+from PyQt5.QtWidgets import QApplication
+print("ASURT Python, CARLA client and desktop dependencies are available.")
+PY
+    checks="$root/Simulation/CARLA/Bridge/Carla_ASU_Bridge/install/carla_telemetry_cpp/lib/carla_telemetry_cpp/carla_telemetry_node"
+    libraries=$(ldd "$checks")
+    if [[ "$libraries" == *"not found"* ]]; then
+        printf '%s\n' "$libraries" >&2
+        exit 1
+    fi
+    /usr/bin/python3 "$root/bin/inference.py" verify
+    if [[ "$ASURT_PROFILE" == linux ]]; then
+        /usr/bin/python3 "$launch/native_vulkan.py"
+    fi
+    exit
+fi
+log="$ASURT_STATE_ROOT/log/carla"
+mkdir -p "$log"
+profile=auto
+if [[ "$action" == start ]]; then
+    profile="$ASURT_PROFILE"
+elif [[ "$action" == start-wslg ]]; then
+    action=start
+    profile=wslg
+fi
+exec /usr/bin/python3 "$launch/session.py" "$profile" "$action" "$@" >>"$log/$action-release.log" 2>&1

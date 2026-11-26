@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "maps": [
+    {
+      "id": "silverstone-section",
+      "label": "Silverstone Split",
+      "file": "silverstone-section.zip",
+      "sha256": "8235c073f45579db0c75803e22c255a16b965ed0164cb36044c79c003e6ab7e8",
+      "bytes": 137333695,
+      "tag": "v0.1.25-flat",
+      "base_sha256": {
+        "WindowsNoEditor": "68be23510e1a5c8d942a6058656e3d204ad5f233631492749948132df71150e1",
+        "LinuxNoEditor": "55945001eb3cec7f2281b966d42ef364f4580c9c9b243ad8f2bc687e0ffc8b9a"
+      },
+      "replaces_sha256": [
+        "b5f2a86fcca53e28c5da990f4b3ba93cd18617b2ada677da47810d1f6ac24ff0"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+asurt_cone_mapper:
+  ros__parameters:
+    use_sim_time: true
+    map_frame: map
+    perception_topic: /perception_landmarks
+    odometry_topic: /odom
+    max_detection_range: 45.0
+    min_detection_range: 0.25
+    association_gate_radius: 2.0
+    mahalanobis_threshold: 5.991
+    observations_for_confirmation: 3
+    maximum_landmarks: 1200
+    publish_rate_hz: 2.0
+    reset_on_pose_jump_m: 30.0
+    maximum_odom_age_s: 0.35
+asurt_slam_trajectory:
+  ros__parameters:
+    use_sim_time: true
+    odom_topic: /odom
+    map_frame: map
+    max_path_poses: 2400
+    min_path_step_m: 0.15
+    reset_on_pose_jump_m: 30.0

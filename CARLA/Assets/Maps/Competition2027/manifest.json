@@ -1,0 +1,37 @@
+{
+  "title": "ASURT 2027 FSUK D4/D5 Cone Tracks",
+  "units": "m",
+  "frame": "local CARLA XY (+x forward, +y vehicle right)",
+  "events": {
+    "acceleration": {
+      "cone_count": 67,
+      "color_counts": {
+        "blue": 16,
+        "orange": 27,
+        "orange_big": 8,
+        "yellow": 16
+      },
+      "file_csv": "acceleration/acceleration_2027_cones.csv",
+      "file_json": "acceleration/acceleration_2027_cones.json",
+      "layout_metadata": "acceleration/acceleration_2027_layout.json",
+      "reference_driving_path": "acceleration/acceleration_2027_reference_path.csv",
+      "preview": "acceleration/acceleration_2027_preview.svg",
+      "preview_png": "acceleration/acceleration_2027_preview.png"
+    },
+    "skidpad": {
+      "cone_count": 81,
+      "color_counts": {
+        "blue": 31,
+        "orange": 15,
+        "orange_big": 4,
+        "yellow": 31
+      },
+      "file_csv": "skidpad/skidpad_2027_cones.csv",
+      "file_json": "skidpad/skidpad_2027_cones.json",
+      "layout_metadata": "skidpad/skidpad_2027_layout.json",
+      "reference_driving_path": "skidpad/skidpad_2027_reference_path.csv",
+      "preview": "skidpad/skidpad_2027_preview.svg",
+      "preview_png": "skidpad/skidpad_2027_preview.png"
+    }
+  }
+}

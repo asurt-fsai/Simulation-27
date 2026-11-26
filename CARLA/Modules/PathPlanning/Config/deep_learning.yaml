@@ -1,0 +1,35 @@
+asurt_deep_learning_planner:
+  ros__parameters:
+    use_sim_time: true
+    input_source: perception
+    perception_topic: /perception_landmarks
+    global_cones_topic: /map/global_cones
+    odometry_topic: /odom
+    model_path: ''
+    # Requires this backend to actually initialize. Never silently switch
+    # to CPU when the CUDA provider cannot run on the simulation GTX 1050.
+    backend: cuda
+    max_age_s: 0.7
+    max_result_age_s: 0.25
+    # Read-only preview accepts a delayed model result (<=3s old), whereas
+    # the independent safety-gated path keeps its strict 0.25s result gate.
+    raw_result_max_age_s: 3.0
+    # RViz retains the last real 15-point prediction up to 8s during gaps;
+    # status reports age/staleness. This is never a control reference.
+    raw_preview_hold_s: 8.0
+    teleport_distance_m: 8.0
+    planning_period_s: 0.2
+    min_probability: 0.35
+    min_radius_m: 0.5
+    max_radius_m: 15.0
+    max_view_angle_rad: 1.0471975511965976
+    min_track_width_m: 2.0
+    max_track_width_m: 7.0
+    max_pair_along_m: 2.0
+    max_first_gate_m: 8.0
+    max_step_m: 3.0
+    max_lateral_m: 7.0
+    max_first_point_m: 5.0
+    min_advance_m: 1.5
+    corridor_margin_m: 0.35
+    blue_left: true

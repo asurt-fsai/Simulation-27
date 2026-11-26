@@ -1,0 +1,43 @@
+# First-pass simulation profile: lower resolution to protect the GTX 1050.
+# For a selected ZED 2i 2.1-mm wide-lens HD720 mode use 1280 x 720 and a
+# measured camera mount/calibration; no claim of exact factory equivalence.
+zed2i_stereo_node:
+  ros__parameters:
+    host: "127.0.0.1"
+    port: 2000
+    role_name: "hero"
+    image_width: 640
+    image_height: 360
+    horizontal_fov_deg: 110.0
+    baseline_m: 0.120
+    # FSAI Blender camera housing origin (original model coordinates, metres).
+    # CARLA hero origin is the Blender world origin, NOT the shifted URDF
+    # base_link origin. ROS +Y left; the CARLA attachment negates this Y.
+    # Approximate physical housing, not an optically calibrated ZED-2i center.
+    mount_x_m: 0.4561834931
+    mount_y_m: 0.0208417531
+    mount_z_m: 0.7304209471
+    mount_pitch_deg: 0.0
+    mount_yaw_deg: 0.0
+    publish_rate_hz: 10.0
+    # GTX1050/i7-7700HQ live-driving profile: fewer expensive CARLA stereo renders.
+    # Keep output timer at 10 Hz; it emits only on new source image pairs.
+    # For camera fidelity benchmarking restore 10.0 and restart just ZED.
+    sensor_rate_hz: 6.0
+    max_stereo_skew_s: 0.05  # Strict timestamp tolerance, independently phased CARLA eyes
+    enable_temporal_tracking: true
+    enable_weather_effects: true
+    glare_scale: 0.8
+    droplets_scale: 0.75
+    noise_std: 1.5
+    # Legacy name retains the existing enable/disable contract for detections.
+    enable_legacy_detection: true
+    # HSV remains selectable for comparison and rollback.
+    vision_backend: "yolo26"
+    # An empty path selects the bundled model, relative to the perception workspace.
+    yolo_model_path: ""
+    yolo_confidence: 0.30
+    yolo_cpu_threads: 2
+    yolo_template_threshold: 0.72
+    # Never publish vehicle commands. Old detection message remains stable.
+    legacy_objects_topic: "/zed/zed_node/obj_det/objects"

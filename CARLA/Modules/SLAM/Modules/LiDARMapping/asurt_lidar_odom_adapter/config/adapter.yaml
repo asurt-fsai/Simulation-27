@@ -1,0 +1,22 @@
+asurt_lidar_odom_adapter:
+  ros__parameters:
+    use_sim_time: true
+    raw_topic: /slam/lidar/mapped_adjusted
+    bridge_topic: /odom
+    normalized_topic: /slam/lidar/normalized_odom
+    status_topic: /slam/lidar/normalization_status
+    raw_frame: slam_lidar_adjusted_map
+    raw_child_frame: slam_lidar_adjusted
+    bridge_frame: map
+    bridge_child_frame: base_link
+    output_frame: lidar_odom
+    output_child_frame: base_link
+    sync_tolerance_s: 0.07
+    maximum_input_age_s: 0.35
+    minimum_pairs: 40
+    maximum_pairs: 96
+    minimum_distance_m: 5.0
+    minimum_turn_rad: 0.48
+    max_fit_rms_m: 0.20
+    max_scale_error: 0.08
+    max_postlock_difference_m: 1.0

@@ -1,0 +1,31 @@
+# Historical BOX mode parameters for oldstack Filter + EuclideanClustering +
+# ConeClassifier. NumPy/SciPy replace Open3D/pandas; numeric RANSAC and voxel
+# outputs can differ slightly. The old stateful LUT corridor is not ported.
+asurt_lidar_perception_node:
+  ros__parameters:
+    pipeline_mode: "legacy_box"
+    input_topic: "/velodyne_points"
+    filtered_topic: "/filtered_points"
+    markers_topic: "/cluster_markers"
+    landmarks_topic: "/lidar/cones"
+    output_frame_id: ""
+    legacy_x_min: 0.0
+    legacy_x_max: 8.0
+    legacy_y_min: -4.0
+    legacy_y_max: 8.0
+    legacy_z_min: -2.0
+    legacy_z_max: 2.0
+    legacy_car_x_min: -1.0
+    legacy_car_x_max: 1.0
+    legacy_car_y_min: -0.5
+    legacy_car_y_max: 0.5
+    legacy_ground_level: 0.2
+    legacy_point_num: 10
+    legacy_distance_threshold: 0.06
+    legacy_num_iterations: 200
+    legacy_horizontal_plane_gradient: 0.8
+    legacy_voxel_size: 0.03
+    legacy_cluster_distance_threshold: 0.2
+    legacy_cluster_min_size: 2
+    legacy_cluster_max_size: 100
+    legacy_max_input_points: 85000

@@ -1,0 +1,20 @@
+{
+  "pairs": 50,
+  "target_centre_spacing_m": 3.5,
+  "minimum_pair_spacing_m": 3.499999999999993,
+  "minimum_segment_distance_m": 3.3945637778303484,
+  "minimum_conservative_clear_width_m": 3.0822007714547532,
+  "required_clear_width_m": 3.0,
+  "safety_margin_m": 0.05,
+  "cone_half_base_m": 0.110437,
+  "original_pair_minimum_m": 2.9985678419776516,
+  "closest_segments_1based": [
+    6,
+    5
+  ],
+  "centreline_preserved": true,
+  "closed_boundary_check": true,
+  "source": "/home/hassan/ASURT/Maps/CSV/test1.csv",
+  "source_sha256": "f8e71d80efbacf49536049411307b98593543fd73bdf305ed56edcd35f360d1a",
+  "output_sha256": "843b58c3f089a7c708d005ff120c44cb8d04bca967c77dd282b4df436b68511c"
+}

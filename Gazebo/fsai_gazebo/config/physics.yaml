@@ -1,0 +1,10 @@
+# PLACEHOLDER ONLY. These values are not validated ASURT vehicle data.
+vehicle:
+  mass_kg: 240.0
+  wheelbase_m: 1.80
+  track_width_front_m: 1.44
+  track_width_rear_m: 1.44
+  cg_m:
+    x: 0.0
+    y: 0.0
+    z: 0.35

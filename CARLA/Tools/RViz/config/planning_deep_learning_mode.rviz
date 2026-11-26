@@ -1,0 +1,225 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+  Help Height: 65
+  Property Tree Widget:
+    Expanded: []
+    Tree Height: 460
+- Class: rviz_common/Views
+  Name: Views
+Visualization Manager:
+  Class: ''
+  Displays:
+  - Class: rviz_common/Group
+    Name: Ground and vehicle | LIVE base_link
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Live vehicle-relative ground grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 50
+      Color: 130; 130; 130
+      Alpha: 0.3
+      Reference Frame: base_link
+      Plane: XY
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: FSAI | vehicle-local blue outline
+      Enabled: true
+      Description Source: File
+      Description File: /home/hassan/ASURT/Simulation/Systems/SLAM/Visualization/fsai_vehicle_preview.urdf
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+      Update Interval: 0
+      TF Prefix: ''
+  - Class: rviz_common/Group
+    Name: Perception | LIVE ZED cone cylinders (LSTM input source)
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: ZED Perception | LIVE blue/yellow/orange cone cylinders
+      Topic:
+        Value: /zed/zed_node/cone_markers
+        History Policy: Keep Last
+        Depth: 10
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Value: true
+  - Class: rviz_common/Group
+    Name: SLAM | accumulated map cones (COMPARISON ONLY)
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/MarkerArray
+      Name: SLAM | Confirmed global cone landmarks
+      Enabled: true
+      Topic:
+        Value: /map/global_cones_markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  - Class: rviz_common/Group
+    Name: Classical | proposed path
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/Path
+      Name: Classical planning | Proposed path (read-only)
+      Enabled: true
+      Topic:
+        Value: /planning/classical/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 30; 235; 185
+      Line Style: Lines
+      Line Width: 0.1
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Classical planning | Corridor and diagnostics
+      Enabled: false
+      Topic:
+        Value: /planning/classical/markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  - Class: rviz_common/Group
+    Name: Acceleration | proposed path
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/Path
+      Name: Acceleration planning | Proposed path (read-only)
+      Enabled: true
+      Topic:
+        Value: /planning/acceleration/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 250; 175; 40
+      Line Style: Lines
+      Line Width: 0.08
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Acceleration | optional path markers
+      Enabled: false
+      Topic:
+        Value: /planning/acceleration/markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  - Class: rviz_common/Group
+    Name: Skidpad | proposed path
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/Path
+      Name: Skidpad planning | Proposed path (read-only)
+      Enabled: true
+      Topic:
+        Value: /planning/skidpad/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 208; 125; 255
+      Line Style: Lines
+      Line Width: 0.08
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Skidpad | optional path markers
+      Enabled: false
+      Topic:
+        Value: /planning/skidpad/markers
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  - Class: rviz_common/Group
+    Name: Deep Learning | proposed path
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/Path
+      Name: Deep Learning | RAW LSTM 15-point prediction (simulator Control optional)
+      Enabled: true
+      Topic:
+        Value: /planning/deep_learning/raw_path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 65; 220; 240
+      Line Style: Lines
+      Line Width: 0.15
+    - Class: rviz_default_plugins/Path
+      Name: Deep Learning | SAFETY-GATED path (optional)
+      Enabled: false
+      Topic:
+        Value: /planning/deep_learning/path
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Color: 245; 110; 150
+      Line Style: Lines
+      Line Width: 0.1
+  - Class: rviz_common/Group
+    Name: Control | Pure Pursuit lookahead target
+    Enabled: true
+    Displays:
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Control | Pure Pursuit lookahead target (small green point)
+      Topic:
+        Value: /control/pure_pursuit/target
+        History Policy: Keep Last
+        Depth: 10
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  - Class: rviz_common/Group
+    Name: Diagnostics | odometry and TF (optional)
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/Odometry
+      Name: Vehicle | Existing bridge odometry (optional)
+      Enabled: false
+      Topic:
+        Value: /odom
+        History Policy: Keep Last
+        Depth: 5
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/TF
+      Name: Existing map / odom / base_link TF (optional)
+      Enabled: false
+  Global Options:
+    Background Color: 24; 31; 42
+    Fixed Frame: base_link
+    Frame Rate: 12
+  Name: root
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 19
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.35
+      Pitch: 0.78
+      Target Frame: base_link
+      Yaw: 0.0
+      Value: Orbit (rviz)
+  Tools:
+  - Class: rviz_default_plugins/Interact
+  - Class: rviz_default_plugins/MoveCamera
+  - Class: rviz_default_plugins/Select
+  - Class: rviz_default_plugins/FocusCamera
+  Value: true
+Window Geometry:
+  Width: 1200
+  Height: 800
