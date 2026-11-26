@@ -26,4 +26,7 @@ if ($Action -eq 'ready') {
     if ($owned) {exit 0}
     exit 1
 }
-if ($owned) {Stop-Process -Id $process.Id -ErrorAction Stop}
+if ($owned) {
+    Stop-Process -InputObject $process -ErrorAction Stop
+    if (!$process.WaitForExit(20000)) { throw 'The previous Windows CARLA server is still shutting down.' }
+}

@@ -203,23 +203,6 @@ def adapt_launchers(source, stack):
     a = command.index('                        while time.monotonic() < deadline:')
     b = command.index('                    client, world, world_map', a)
     command = command[:a] + command[b:]
-    readiness = '                    client, world, world_map = load_world(host, port, deadline, ensure_alive)\n'
-    if command.count(readiness) != 1:
-        raise ValueError("Could not locate the launcher world readiness check.")
-    if "Expected one cooked map named" not in command:
-        command = command.replace(readiness, readiness + '''                    if pack is not None and world_map.name.removeprefix("/Game/").lstrip("/") != map_path:
-                        # CARLA discovers loose cooked maps by their short name.
-                        name = map_path.rsplit("/", 1)[-1]
-                        matches = [item for item in client.get_available_maps() if item.rsplit("/", 1)[-1] == name]
-                        if len(matches) != 1:
-                            raise RuntimeError(f"Expected one cooked map named {name}, found {len(matches)}.")
-                        client.set_timeout(90)
-                        world = client.load_world(matches[0])
-                        world_map = world.get_map()
-                        client.set_timeout(15)
-''')
-    command = command.replace('world_map.name.lstrip("/") != map_path',
-                              'world_map.name.removeprefix("/Game/").lstrip("/") != map_path')
     compile(command, "session.py", "exec")
     (launch / "session.py").write_text(command)
 

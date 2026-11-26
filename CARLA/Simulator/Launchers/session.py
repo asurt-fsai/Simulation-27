@@ -17,7 +17,7 @@ import time
 import carla
 import yaml
 
-from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map
+from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map, select_world
 
 
 ROOT = Path.home() / "ASURT"
@@ -508,17 +508,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                                 break
                             time.sleep(1)
                     client, world, world_map = load_world(host, port, deadline, ensure_alive)
-                    if pack is not None and world_map.name.removeprefix("/Game/").lstrip("/") != map_path:
-                        name = map_path.rsplit("/", 1)[-1]
-                        matches = [item for item in client.get_available_maps() if item.rsplit("/", 1)[-1] == name]
-                        if len(matches) != 1:
-                            raise RuntimeError(f"Expected one cooked map named {name}, found {len(matches)}.")
-                        client.set_timeout(90)
-                        world = client.load_world(matches[0])
-                        world_map = world.get_map()
-                        client.set_timeout(15)
-                    if world_map.name.removeprefix("/Game/").lstrip("/") != map_path:
-                        raise RuntimeError(f"Expected {map_path}, got {world_map.name}")
+                    world, world_map = select_world(client, world, world_map, map_path)
                     print(f"ROAD_READY map={world_map.name} client={client.get_client_version()} "
                           f"server={client.get_server_version()}", flush=True)
                     check_empty_episode(world)
@@ -808,9 +798,13 @@ def stop_for_map_switch(profile, map_key, expected_session):
             check_map_base(pack, "LinuxNoEditor", CARLA_ROOT / "Runtime/Active/asurt-linux-flat")
     os.kill(active["pid"], signal.SIGTERM)
     deadline = time.monotonic() + 45
-    while (current := running_session()) is not None:
-        if current["state"] != expected_session:
+    while True:
+        current = running_session()
+        if current is not None and current["state"] != expected_session:
             raise RuntimeError("A different simulator session started while switching maps.")
+        # The receipt is removed before the supervisor releases its launch lock.
+        if process_start(active["pid"]) != active["start"]:
+            return
         if time.monotonic() >= deadline:
             raise TimeoutError("The current simulator is still shutting down.")
         time.sleep(0.25)
