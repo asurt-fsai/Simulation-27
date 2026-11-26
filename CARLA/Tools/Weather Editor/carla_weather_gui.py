@@ -251,7 +251,8 @@ class WeatherPanel:
             self._add_slider(right, name)
         presets = ttk.Frame(shell)
         presets.pack(fill="x", pady=(13, 8))
-        for label, name in [("Overcast", "overcast"), ("Heavy rain", "heavy_rain"), ("Clear Rain", "clear_rain"),
+        for label, name in [("Overcast", "overcast"), ("Light rain", "light_rain"),
+                            ("Heavy rain", "heavy_rain"), ("Clear Rain", "clear_rain"),
                             ("Dense fog", "dense_fog"), ("Dust", "dust"), ("Wet road", "wet_road")]:
             ttk.Button(presets, text=label, command=lambda p=name: self.preset(p)).pack(
                 side="left", padx=3)

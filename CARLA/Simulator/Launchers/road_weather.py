@@ -58,9 +58,16 @@ def road_conditions(weather, air_c, asphalt_c, seconds):
     wet, water = weather.wetness, weather.precipitation_deposits
     drying = max(0.45, 1.1 + 4.3 * solar + 0.095 * (asphalt_c - 15) + 0.014 * weather.wind_intensity)
     if rain:
-        wet = 100.0 - (100.0 - wet) * math.exp(-seconds * rain * 0.032)
-        standing_target = percent(100.0 * (rain - 0.28) * wet / 100.0)
-        water = standing_target + (water - standing_target) * math.exp(-seconds / 45.0)
+        wetting = 0.032 * rain
+        # Evaporation competes with the incoming water film. The dry-road
+        # rate is in percentage points per minute, converted here to 1/s.
+        film_rate = wetting + drying / 6000.0
+        wet = approach(wet, 100.0 * wetting / film_rate, seconds, 1.0 / film_rate)
+        standing_target = max(0.0, rain - 0.28) * wet
+        if water < standing_target:
+            water = approach(water, standing_target, seconds, 45.0)
+        else:
+            water = max(standing_target, water - drying * seconds / 42.0)
     else:
         wet = max(0.0, wet - drying * seconds / 60.0)
         water = max(0.0, water - drying * seconds / 42.0)

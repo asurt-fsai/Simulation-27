@@ -35,7 +35,8 @@ Weather Editor, MCP `set_weather`, and CARLA API changes apply to an active
 FlatAsphalt or Silverstone Split session. Open **System Manager → Weather Status**
 or call MCP `weather_status` to read the current weather and wheel grip.
 **Start Rain** uses the selected rainfall intensity. Enable **Timer** to choose
-when rainfall stops. Rain builds cloud cover, wets the road, and collects standing water. When rain
+when rainfall stops. Light rain builds a water film slowly. Heavy rain wets
+the road faster and can collect standing water. When rain
 stops, the sky moves back toward the selected cloud cover. Clear Noon clears
 the sky and leaves the road to dry. **Clear Rain** stops the rain and dries the
 road immediately. Sunlight, higher asphalt temperature, and

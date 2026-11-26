@@ -81,12 +81,14 @@ TOOLS = {
         tool(weather_status, "Read live weather, road wetness, air, asphalt and estimated tyre temperatures, timed rain remaining, "
              "fog, dust, and per-wheel configured and rolling effective grip.", read_only=True),
         tool(set_weather, "Apply a Weather Editor preset, individual fields, or both on the active simulator. "
-             "Use air_temperature_c to set air temperature and rain_duration_s for simulated seconds of rain. "
-             "Set rain_duration_s to 0 to stop rain or use clear_rain to dry the road immediately. "
-             "Explicit fields override the preset.",
+             "Use precipitation, fog_density, dust_storm, cloudiness and wind_intensity for 0–100 intensities. "
+             "Set rain_duration_s to time a shower, or use clear_rain to stop rain and dry the road immediately. "
+             "Explicit fields override preset values. Light and heavy rain wet the road over time.",
              {"preset": choice(*PRESETS),
               "fields": {"type": "object", "additionalProperties": False,
-                         "properties": {key: number(low, high) for key, _, low, high, _, _ in CONTROLS}}}),
+                         "properties": {key: {**number(low, high),
+                                              "description": f"{label} ({unit})" if unit else label}
+                                        for key, label, low, high, _, unit in CONTROLS}}}),
         tool(run_scenario,
              "Queue a dedicated simulator run and ROS 2 recording. Only starts when no simulator is active. "
              "Select reference, stationary observe, or Stanley with a goal [x, y, yaw_deg] in the exported track frame. "

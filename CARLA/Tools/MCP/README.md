@@ -169,6 +169,13 @@ plugin and click **Restart**.
 | `simulator_status` | List maps, profiles, live modules and the active session. |
 | `weather_status` | Read live weather, road wetness, air and asphalt temperatures, estimated tyre temperature, and configured and effective tyre grip. |
 | `set_weather` | Apply a Weather Editor preset or update individual fields. Set `air_temperature_c` to control air temperature and `rain_duration_s` to time a shower in simulation seconds. |
+
+For a 60-second light shower at 25% intensity, call `set_weather` with
+`{"preset":"light_rain","fields":{"precipitation":25,"rain_duration_s":60}}`.
+To adjust fog or dust independently, pass `fog_density` or `dust_storm` in
+`fields`, using values from 0 to 100. Fields override presets, so changing a
+rain intensity leaves the current water film in place. `weather_status` reads
+back the active settings, wetness, and standing water.
 | `run_scenario` | Queue a dedicated simulator run with recording and metrics. |
 | `record_bag` | Record topics from an existing simulator. |
 | `track_importer` | Preview, spawn or clear physical cones, check status, and place the car. |

@@ -95,7 +95,8 @@ def thermal_status(directory, elapsed=None):
 
 
 CAMERA_PRESETS = ("sun_low", "sun_high", "sun_behind")
-PRESETS = (*CAMERA_PRESETS, "clear_noon", "overcast", "heavy_rain", "clear_rain", "dense_fog", "dust", "wet_road")
+PRESETS = (*CAMERA_PRESETS, "clear_noon", "overcast", "light_rain", "heavy_rain", "clear_rain",
+           "dense_fog", "dust", "wet_road")
 
 
 def scene_preset(name: str, heading: float | None) -> dict[str, float]:
@@ -111,8 +112,8 @@ def scene_preset(name: str, heading: float | None) -> dict[str, float]:
     presets = {
         "clear_noon": dict(sunny, sun_altitude_angle=70),
         "overcast": dict(stop_rain, cloudiness=90, fog_density=6, fog_distance=0, dust_storm=0),
-        "heavy_rain": dict(precipitation=85, precipitation_deposits=70,
-                           wetness=90, wind_intensity=65, fog_density=0, fog_distance=0, dust_storm=0),
+        "light_rain": dict(precipitation=15, wind_intensity=20, fog_density=0, fog_distance=0, dust_storm=0),
+        "heavy_rain": dict(precipitation=85, wind_intensity=65, fog_density=0, fog_distance=0, dust_storm=0),
         "clear_rain": dict(stop_rain, wetness=0, precipitation_deposits=0),
         "dense_fog": dict(stop_rain, cloudiness=70,
                           fog_density=85, fog_distance=0, fog_falloff=2.0,

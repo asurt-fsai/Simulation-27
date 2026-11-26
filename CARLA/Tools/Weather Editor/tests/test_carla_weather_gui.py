@@ -92,9 +92,34 @@ class WeatherLogicTests(unittest.TestCase):
 
     def test_adverse_conditions_presets(self):
         self.assertGreater(gui.scene_preset("heavy_rain", None)["precipitation"], 50)
+        self.assertLess(gui.scene_preset("light_rain", None)["precipitation"], 30)
         self.assertGreater(gui.scene_preset("dense_fog", None)["fog_density"], 50)
         with self.assertRaises(ValueError):
             gui.scene_preset("unknown", 45)
+
+    def test_rain_presets_wet_the_road_at_their_selected_intensity(self):
+        conditions = {}
+        for preset, intensity_override in (("light_rain", {}), ("heavy_rain", {}),
+                                           ("heavy_rain", {"precipitation": 15, "wind_intensity": 20})):
+            world = FakeWorld()
+            with tempfile.TemporaryDirectory() as directory:
+                road = RoadWeather(directory)
+                road.update(world)
+                gui.set_weather_fields(world, {**gui.scene_preset(preset, None), **intensity_override}, directory)
+                self.assertEqual(world.weather.wetness, 0)
+                self.assertEqual(world.weather.precipitation_deposits, 0)
+                for world.elapsed in range(1, 61):
+                    road.update(world)
+                conditions[(preset, bool(intensity_override))] = (
+                    world.weather.wetness, world.weather.precipitation_deposits,
+                )
+        light, light_water = conditions[("light_rain", False)]
+        heavy, heavy_water = conditions[("heavy_rain", False)]
+        self.assertGreater(light, 10)
+        self.assertGreater(heavy, light * 2.5)
+        self.assertEqual(light_water, 0)
+        self.assertGreater(heavy_water, 10)
+        self.assertEqual(conditions[("heavy_rain", True)], (light, light_water))
 
     def test_timed_rain_gathers_clouds_and_wet_road_survives_clearing(self):
         world = FakeWorld()
