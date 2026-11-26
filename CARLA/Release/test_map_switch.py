@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock, call
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Simulator/Launchers"))
-from map_packs import select_world
+from world_selection import select_world
 
 
 class MapSwitchTest(unittest.TestCase):

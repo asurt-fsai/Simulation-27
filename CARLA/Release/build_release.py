@@ -89,7 +89,7 @@ def adapt_launchers(source, stack):
     launch = stack / "Simulation/CARLA/Launchers"
     launch.mkdir(parents=True, exist_ok=True)
     for name in ("map_packs.py", "map_pack_panel.py", "managed_modules.py", "native_vulkan.py", "release_update.py",
-                 "tools-launcher.py", "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
+                 "tools-launcher.py", "world_selection.py", "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
         copy(source / name, launch / name)
     copy(HERE / "asurt", stack / "bin/asurt")
     copy(HERE / "dev-build", stack / "bin/dev-build")

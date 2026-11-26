@@ -1,14 +1,29 @@
 """Package a channel update using the previous released CARLA and ROS binaries."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import tarfile
 import tempfile
 
 import asurt_update
 import build_release as builder
+
+
+def startup_checks(archive, names):
+    with tarfile.open(archive, "r:gz") as package:
+        members = {entry.name.removeprefix("./"): entry for entry in package.getmembers()}
+        hashes = {}
+        for name in names:
+            with package.extractfile(members[name]) as file:
+                data = hashlib.sha256()
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    data.update(chunk)
+                hashes[name] = data.hexdigest()
+        return hashes
 
 
 def copy_changed_files(reference, overlay):
@@ -33,13 +48,15 @@ def main():
     parser.add_argument("--branch", choices=("main", "testing"), required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--asset-directory", type=Path,
+                        help="Add verification for startup files from the verified base archives.")
     args = parser.parse_args()
     testing = args.branch == "testing"
     if not re.fullmatch(r"testing-\d+" if testing else r"v\d+\.\d+\.\d+-flat", args.tag):
         parser.error("Use testing-N for Testing and vX.Y.Z-flat for Release.")
     manifest = json.loads(args.base_manifest.read_text())
     reference = manifest["tag"]
-    if builder.item(args.base_patch) != manifest["stack_patch"]:
+    if any(manifest["stack_patch"].get(key) != value for key, value in builder.item(args.base_patch).items()):
         raise ValueError("The baseline stack patch failed verification.")
     args.output.mkdir(parents=True, exist_ok=True)
     builder.write_installers(args.output, branch=args.branch)
@@ -48,6 +65,21 @@ def main():
     for asset in (manifest["stack"], *manifest["runtime"].values(), manifest.get("wsl_graphics", {})):
         if asset:
             asset.setdefault("tag", reference)
+    if args.asset_directory:
+        stack = manifest["stack"]
+        archive = args.asset_directory / stack["file"]
+        if builder.digest(archive) != stack["sha256"]:
+            raise ValueError("The base stack archive failed verification.")
+        launch = "Simulation/CARLA/Launchers"
+        stack["startup_files"] = startup_checks(archive, ("bin/asurt", "bin/inference.py", f"{launch}/session.py"))
+        for platform, asset in manifest["runtime"].items():
+            archive = args.asset_directory / asset["file"]
+            if builder.digest(archive) != asset["sha256"]:
+                raise ValueError(f"The {platform} runtime archive failed verification.")
+            prefix = "WindowsNoEditor/" if platform == "windows" else ""
+            maps = prefix + "CarlaUE4/Content/Carla/Maps/"
+            asset["startup_files"] = startup_checks(archive, (
+                maps + "FlatAsphalt.umap", maps + "FlatAsphalt.uexp", maps + "OpenDrive/FlatAsphalt.xodr"))
     manifest.update(tag=args.tag, channel=args.branch,
                     updater=builder.item(args.output / "asurt_update.py"),
                     linux_installer=builder.item(args.output / "Install-ASURT.sh"))
@@ -64,6 +96,10 @@ def main():
         builder.relocate(overlay, builder.REPOSITORY)
         builder.pack_directory(overlay, patch)
     manifest["stack_patch"] = builder.item(patch)
+    launch = "Simulation/CARLA/Launchers"
+    manifest["stack_patch"]["startup_files"] = startup_checks(
+        patch, ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
+                f"{launch}/map_packs.py", f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py"))
     (args.output / "asurt-release.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

@@ -197,14 +197,66 @@ def extract(archive, destination):
                 raise ValueError(f"Unsupported archive entry: {member.name}")
 
 
-def install_archive(archive, target):
-    if target.is_dir():
+def replace_directory(staged, target):
+    backup = None
+    if os.path.lexists(target):
+        backup = Path(tempfile.mkdtemp(prefix=target.name + ".repair-", dir=target.parent)) / "previous"
+        target.rename(backup)
+    try:
+        staged.rename(target)
+    except OSError:
+        if backup is not None:
+            backup.rename(target)
+        raise
+    if backup is not None:
+        print(f"Previous files saved at {backup}.", flush=True)
+
+
+def install_archive(archive, target, *, repair=False, validate=None):
+    if target.is_dir() and not repair:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as temporary:
         extracted = Path(temporary) / "stage"
         extract(archive, extracted)
-        extracted.rename(target)
+        if validate is not None and not validate(extracted):
+            raise ValueError(f"Released archive did not contain the expected files: {archive.name}")
+        replace_directory(extracted, target)
+
+
+def ensure_artifact(asset, args, cache, target, label, *, shipping=None):
+    if not SHA.fullmatch(asset["sha256"]) or target.name != asset["sha256"]:
+        raise ValueError(f"Invalid archive fingerprint for {label}.")
+    checks = dict(asset.get("startup_files", {}))
+    if shipping:
+        checks[shipping] = asset["shipping_sha256"]
+    for name, expected in checks.items():
+        path = PurePosixPath(name)
+        if (path.is_absolute() or not path.parts or ".." in path.parts or
+                any("\\" in part or ":" in part for part in path.parts) or not SHA.fullmatch(expected)):
+            raise ValueError(f"Invalid startup file checksum for {label}.")
+
+    def complete(directory):
+        if not directory.is_dir() or directory.is_symlink():
+            return False
+        try:
+            if shipping and asset.get("startup_files"):
+                prefix = "WindowsNoEditor/" if shipping.startswith("WindowsNoEditor/") else ""
+                engine = directory / (prefix + "CarlaUE4/Config/DefaultEngine.ini")
+                if b"[/Script/Engine.CollisionProfile]" not in engine.read_bytes():
+                    return False
+            return all((directory / path).resolve().is_relative_to(directory) and digest(directory / path) == expected
+                       for path, expected in checks.items())
+        except OSError:
+            return False
+
+    if complete(target):
+        print(f"{label} is up to date.")
+        return False
+    if os.path.lexists(target):
+        print(f"Repairing {label} from its verified release archive.", flush=True)
+    install_archive(fetch(asset, args, cache), target, repair=True, validate=complete)
+    return True
 
 
 def activate(source, link):
@@ -481,6 +533,24 @@ def verify_installation(candidate, settings, cuda_root):
                             ASURT_RELEASE_CUDA_ROOT=str(cuda_root) if cuda_root else ''))
 
 
+def launcher_matches(installation, stack, *, relocated=True):
+    launch = "Simulation/CARLA/Launchers"
+    paths = ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
+             f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py")
+    try:
+        for name in paths:
+            source = stack / name
+            if source.is_file():
+                expected = source.read_bytes()
+                if relocated and source.suffix in TEXT_TYPES:
+                    expected = expected.replace(b"@ASURT_ROOT@", os.fsencode(installation))
+                if (installation / name).read_bytes() != expected:
+                    return False
+        return True
+    except OSError:
+        return False
+
+
 def make_root(args, root, manifest, runtime, stack_dir, cuda_root, wsl_runtime=None):
     settings = root / "state"
     platform = args.platform
@@ -490,10 +560,24 @@ def make_root(args, root, manifest, runtime, stack_dir, cuda_root, wsl_runtime=N
     if wsl_runtime:
         version += f"-wslg-{manifest['runtime']['linux']['sha256'][:16]}"
     target = root / "installations" / version
-    if target.is_dir():
-        if not args.fixture:
-            verify_installation(target, settings, cuda_root)
-        return target
+    if target.is_dir() and launcher_matches(target, stack_dir):
+        active = target / ASSET_ROOT
+        linux_runtime = wsl_runtime or (runtime if platform == "linux" else None)
+        try:
+            valid = (target / ".asurt-platform").read_text().strip() == platform
+            if linux_runtime:
+                valid = valid and (active / "asurt-linux-flat").resolve() == linux_runtime
+            if platform == "windows":
+                expected = subprocess.check_output(["wslpath", "-w", str(runtime)], text=True).strip()
+                valid = valid and (active / "asurt-win64-flat.txt").read_text().strip() == expected
+            if valid:
+                if not args.fixture:
+                    verify_installation(target, settings, cuda_root)
+                return target
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    if os.path.lexists(target):
+        print("Repairing the installed launcher and packaged tools.", flush=True)
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as temp:
         candidate = Path(temp) / "stack"
@@ -510,20 +594,20 @@ def make_root(args, root, manifest, runtime, stack_dir, cuda_root, wsl_runtime=N
         (candidate / ".asurt-platform").write_text(platform + "\n")
         if not args.fixture:
             verify_installation(candidate, settings, cuda_root)
-        candidate.rename(target)
+        replace_directory(candidate, target)
     return target
 
 
-def stack_with_patch(base, patch):
+def stack_with_patch(base, patch, *, repair=False):
     key = hashlib.sha256(f"{base.name}:{patch.name}".encode()).hexdigest()
     target = base.parent / key
-    if target.is_dir():
+    if target.is_dir() and not repair and launcher_matches(target, patch, relocated=False):
         return target
     with tempfile.TemporaryDirectory(dir=base.parent) as temporary:
         stage = Path(temporary) / "stack"
         shutil.copytree(base, stage)
         shutil.copytree(patch, stage, dirs_exist_ok=True)
-        stage.rename(target)
+        replace_directory(stage, target)
     return target
 
 
@@ -575,6 +659,9 @@ def update_maps(args, root, runtime, wsl_runtime=None):
         bases = {"LinuxNoEditor": (digest(runtime / SHIP["linux"]), runtime)}
     registry = root / "state" / "maps"
     registry.mkdir(parents=True, exist_ok=True)
+    # Use the installed launcher to recognize registered packs and validate their base.
+    sys.path.insert(0, str(root / "current" / "Simulation/CARLA/Launchers"))
+    from map_packs import check_base, read_pack, register
     for item in catalog["maps"]:
         map_id = item["id"]
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,47}", map_id) or map_id in {"flat-asphalt", "silverstone"}:
@@ -596,14 +683,20 @@ def update_maps(args, root, runtime, wsl_runtime=None):
             if args.maps == "none":
                 continue
             if installed not in replaces:
-                print(f'{item["label"]} has a local revision. Its installed files were preserved.')
-                continue
+                try:
+                    valid_local = read_pack(pack).map_id == map_id
+                    with zipfile.ZipFile(pack) as local_pack:
+                        valid_local = valid_local and local_pack.testzip() is None
+                except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile):
+                    valid_local = False
+                if valid_local:
+                    print(f'{item["label"]} has a local revision. Its installed files were preserved.')
+                    continue
+                print(f'Repairing the damaged {item["label"]} map pack.', flush=True)
+                replaces = [*replaces, installed]
         elif not ask(item["label"], args.maps):
             continue
         archive = fetch(item, args, root / "cache", search_dirs=(Path.cwd(), Path.home() / "Downloads"))
-        # Use the same parser and compatibility checks as the simulator.
-        sys.path.insert(0, str(root / "current" / "Simulation/CARLA/Launchers"))
-        from map_packs import check_base, read_pack, register
         definition = read_pack(archive)
         if definition.map_id != map_id:
             raise ValueError(f"Map ID does not match the catalog: {map_id}")
@@ -622,6 +715,15 @@ def linux_shortcuts(root):
         )
         for name, action in ACTIONS.items()
     }
+    start_icon = f"{root}/current/{ICON_ROOT}/start.png"
+    open_map = f'"{root}/current/bin/asurt" open-map --map'
+    entries["asurt-start.desktop"] = ("ASURT FlatAsphalt", f"{open_map} flat-asphalt", start_icon)
+    sys.path.insert(0, str(root / "current" / "Simulation/CARLA/Launchers"))
+    from map_packs import catalog as registered_maps
+    silverstone = registered_maps(root / "state/maps").get("silverstone-section")
+    if silverstone and "LinuxNoEditor" in silverstone.data["platforms"]:
+        entries["asurt-silverstone.desktop"] = (
+            "ASURT Silverstone Split", f"{open_map} silverstone-section", start_icon)
     entries["asurt-workspace.desktop"] = (
         "ASURT Workspace", f'xdg-open "{root}/workspace"', "folder",
     )
@@ -733,27 +835,20 @@ def main():
         runtime_root = args.windows_root.resolve() if args.windows_root else root
         runtime = runtime_root / "runtimes" / runtime_asset["sha256"]
         stack = root / "stacks" / stack_asset["sha256"]
-        downloads = [(runtime_asset, runtime, "Simulator"), (stack_asset, stack, "Modules and tools")]
+        cache = root / "cache"
+        ensure_artifact(runtime_asset, args, cache, runtime, "Simulator", shipping=SHIP[args.platform])
+        stack_repaired = ensure_artifact(stack_asset, args, cache, stack, "Modules and tools")
         patch_asset = manifest.get("stack_patch")
         if patch_asset:
             patch = root / "stack-patches" / patch_asset["sha256"]
-            downloads.append((patch_asset, patch, "Editable workspace update"))
+            patch_repaired = ensure_artifact(patch_asset, args, cache, patch, "Editable workspace update")
         wsl_runtime = None
         if args.with_wsl_runtime:
             wsl_asset = manifest["runtime"]["linux"]
             wsl_runtime = root / "runtimes" / wsl_asset["sha256"]
-            downloads.append((wsl_asset, wsl_runtime, "WSLg simulator"))
-        for asset, target, name in downloads:
-            if target.is_dir():
-                print(f"{name} is up to date.")
-            else:
-                install_archive(fetch(asset, args, root / "cache"), target)
-        if digest(runtime / SHIP[args.platform]) != runtime_asset["shipping_sha256"]:
-            raise ValueError("The installed simulator executable failed verification.")
-        if wsl_runtime and digest(wsl_runtime / SHIP["linux"]) != wsl_asset["shipping_sha256"]:
-            raise ValueError("The installed WSLg simulator executable failed verification.")
+            ensure_artifact(wsl_asset, args, cache, wsl_runtime, "WSLg simulator", shipping=SHIP["linux"])
         if patch_asset:
-            stack = stack_with_patch(stack, patch)
+            stack = stack_with_patch(stack, patch, repair=stack_repaired or patch_repaired)
         cuda_root = None if args.fixture else prepare_inference(root, stack)
         installation = make_root(args, root, manifest, runtime, stack, cuda_root, wsl_runtime)
         enable_dynamic_prop_sensor_trace(runtime / "WindowsNoEditor" if args.platform == "windows" else runtime)
@@ -773,12 +868,13 @@ def main():
         record_release(root / "state", args, manifest)
         if previous and previous != installation:
             close_previous_manager(current, previous)
-        if args.platform == "linux" and not args.no_shortcuts:
-            linux_shortcuts(root)
         try:
             update_maps(args, root, runtime, wsl_runtime)
         except (OSError, ValueError, KeyError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
-            print(f"Base and tools installed. The optional map update could not finish: {error}", file=sys.stderr)
+            print(f"Base and tools installed. Silverstone or another optional map could not be installed: {error}\n"
+                  "Rerun the installer with --maps all (Windows: -Maps all) to retry.", file=sys.stderr)
+        if args.platform == "linux" and not args.no_shortcuts:
+            linux_shortcuts(root)
     print(f"ASURT is ready at {root}.")
     print(f"Open ASURT Workspace: {root / 'workspace'}")
     print("  Modules/   ROS packages, parameters, and launch scripts")

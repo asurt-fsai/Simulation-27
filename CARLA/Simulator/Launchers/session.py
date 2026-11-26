@@ -17,7 +17,8 @@ import time
 import carla
 import yaml
 
-from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map, select_world
+from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map
+from world_selection import select_world
 
 
 ROOT = Path.home() / "ASURT"
@@ -813,7 +814,7 @@ def stop_for_map_switch(profile, map_key, expected_session):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", choices=(*PROFILES, "auto"))
-    parser.add_argument("action", choices=("start", "switch-map", "stop", "status", *LIVE_TOOLS,
+    parser.add_argument("action", choices=("start", "switch-map", "open-map", "stop", "status", *LIVE_TOOLS,
                                            "trackdraw", "viewer", "manager", "map-packs", "ros-bags", "tools"))
     parser.add_argument("--candidate", action="store_true")
     parser.add_argument("--acceptance", action="store_true")
@@ -821,6 +822,13 @@ def main():
     parser.add_argument("--session-state")
     parser.add_argument("--map", choices=MAPS, default="flat-asphalt")
     args, extra = parser.parse_known_args()
+    if args.action == "open-map":
+        active = running_session()
+        if args.profile == "auto":
+            args.profile = active["profile"] if active else os.environ.get("ASURT_PROFILE", "wslg")
+        if active and active["profile"] == args.profile and not args.session_state:
+            args.session_state = active["state"]
+        args.action = "switch-map"
     if args.profile == "auto" and args.action not in (*LIVE_TOOLS, "trackdraw", "manager", "map-packs", "ros-bags", "tools"):
         parser.error("Select a simulator profile for this action")
     if args.action in ("start", "switch-map"):
