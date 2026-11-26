@@ -156,14 +156,20 @@ class ReleaseUpdateTest(unittest.TestCase):
         self.assertEqual(args[-2:], ["--maps", "all"])
         self.assertEqual(args[args.index("--root")+1], str(self.root))
         config["platform"] = "windows"
-        with patch("release_update.subprocess.check_output", return_value="C:\\ASURT\\Install-ASURT.ps1\n"):
-            args = update.installer_command(self.root, self.state, config)
-        self.assertEqual(args[-3:], ["-Maps", "all", "-NativeOnly"])
-        with patch("release_update.subprocess.check_output", return_value="C:/ASURT/Install-ASURT.ps1"), \
+        with patch("release_update.subprocess.check_output", return_value="C:\\ASURT\\Install-ASURT.ps1\n"), \
              patch("release_update.powershell_exe", return_value="powershell.exe"):
-            args = update.installer_command(self.root, self.state, config, add_wslg=True)
-        self.assertEqual(args[-3:], ["-Maps", "all", "-WithWslg"])
-        self.assertIn("-Distribution", args)
+            args = update.installer_command(self.root, self.state, config)
+            optional = update.installer_command(self.root, self.state, config, add_wslg=True)
+        self.assertEqual(args[-3:], ["-Maps", "all", "-NativeOnly"])
+        self.assertEqual(optional[-3:], ["-Maps", "all", "-WithWslg"])
+        self.assertIn("-Distribution", optional)
+
+    def test_powershell_can_be_resolved_without_windows_path_entries(self):
+        executable = self.root / "powershell.exe"
+        executable.touch()
+        with patch("windows_interop.shutil.which", return_value=None), \
+             patch("windows_interop.subprocess.check_output", return_value=f"{executable}\n"):
+            self.assertEqual(update.powershell_exe(), str(executable))
 
     def test_declining_prompts_once_per_manager_launch(self):
         with patch.dict("os.environ", {"ASURT_STATE_ROOT": str(self.state)}), \
