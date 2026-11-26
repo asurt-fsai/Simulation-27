@@ -9,6 +9,10 @@ export ASURT_PROFILE="$(cat "$root/.asurt-platform")"
 export ROS_DOMAIN_ID="${ASURT_ROS_DOMAIN_ID:-46}"
 export ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export PYTHONUNBUFFERED=1
+# Stock ROS, OpenCV and SciPy are built against Ubuntu's NumPy. Keep the
+# release independent of the caller's virtualenv, pip user site and PYTHONPATH.
+unset PYTHONHOME PYTHONPATH
+export PYTHONNOUSERSITE=1
 source /opt/ros/humble/setup.bash
 for relative in \
     Simulation/Systems/Common/ROSUnderlays/fs-system-26-test-build \
@@ -21,7 +25,7 @@ for relative in \
 done
 export ASURT_PERCEPTION_ENV="$root/Simulation/Systems/Perception/Workspace/autonomy_integration"
 export LD_LIBRARY_PATH="$root/client/carla:$root/Simulation/Systems/SLAM/ThirdParty/gtsam-prefix/opt/ros/humble/lib:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="$root/client:${PYTHONPATH:-}"
+export PYTHONPATH="$root/client${PYTHONPATH:+:$PYTHONPATH}"
 ort_cpu="$root/Simulation/Systems/Perception/Dependencies/onnxruntime"
 cuda_root="${ASURT_RELEASE_CUDA_ROOT-$ASURT_STATE_ROOT/inference-cuda}"
 export ASURT_INFERENCE_BACKEND=cpu ASURT_CUDA_SITE=
@@ -34,7 +38,7 @@ if [[ -n "$cuda_root" && -d "$cuda_root/onnxruntime" && ${CUDA_VISIBLE_DEVICES-a
         export LD_LIBRARY_PATH="$library_dir:$LD_LIBRARY_PATH"
     done
 fi
-export PYTHONPATH="${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu:$PYTHONPATH"
+export PYTHONPATH="/usr/lib/python3/dist-packages:${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu:$PYTHONPATH"
 action="${1:-start}"
 shift || true
 if [[ "$action" == tools ]]; then action=manager; fi
@@ -54,13 +58,24 @@ if [[ "$action" == workspace ]]; then
 fi
 if [[ "$action" == check ]]; then
     /usr/bin/python3 - <<'PY'
+import os
+import sys
+from pathlib import Path
+
 import carla
 import carla_telemetry.manual_control
+import cv2
+import numpy
 import rclpy
 import tkinter
 import yaml
+from cv_bridge.boost.cv_bridge_boost import getCvType
 from PyQt5.QtWidgets import QApplication
-print("ASURT Python, CARLA client and desktop dependencies are available.")
+from scipy.spatial import cKDTree
+
+sys.path.insert(0, str(Path(os.environ['ASURT_ROOT']) / 'tools/Trackdraw/fs-trackdraw/src'))
+from trackdraw.window import TrackDrawWindow
+print(f"ASURT CARLA, ROS, and desktop dependencies verified with NumPy {numpy.__version__}.")
 PY
     checks="$root/Simulation/CARLA/Bridge/Carla_ASU_Bridge/install/carla_telemetry_cpp/lib/carla_telemetry_cpp/carla_telemetry_node"
     libraries=$(ldd "$checks")

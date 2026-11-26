@@ -114,7 +114,7 @@ def adapt_launchers(source, stack):
     launch = stack / "Simulation/CARLA/Launchers"
     launch.mkdir(parents=True, exist_ok=True)
     for name in ("map_packs.py", "map_pack_panel.py", "managed_modules.py", "native_vulkan.py", "release_update.py",
-                 "world_selection.py", "weather_grip.py", "road_weather.py", "windows_interop.py",
+                 "world_selection.py", "weather_grip.py", "road_weather.py", "windows_interop.py", "process_ownership.py",
                  "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
         copy(source / name, launch / name)
     copy(HERE / "asurt", stack / "bin/asurt")
@@ -165,7 +165,6 @@ if os.environ["ASURT_PROFILE"] == "windows":
     command = command.replace('        wake_novnc()\n    elif args.action in ("stop", "status"):',
                               '        from novnc_viewer import open_viewer\n        open_viewer(LOG_ROOT)\n'
                               '    elif args.action in ("stop", "status"):')
-    command = command.replace('trackdraw / ".venv/bin/python"', 'PYTHON')
     command = command.replace('def start(name, args, *, environment=env):', 'def start(name, args, *, environment=env, cwd=None):')
     command = command.replace('proc = subprocess.Popen(args, env=environment, stdout=output, stderr=subprocess.STDOUT,',
                               'proc = subprocess.Popen(args, cwd=cwd, env=environment, stdout=output, stderr=subprocess.STDOUT,')

@@ -113,7 +113,7 @@ def main():
         patch, ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
                 f"{launch}/map_packs.py", f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py",
                 f"{launch}/weather_grip.py", f"{launch}/road_weather.py", f"{launch}/windows_interop.py",
-                f"{launch}/windows-server.ps1"))
+                f"{launch}/windows-server.ps1", f"{launch}/process_ownership.py"))
     (args.output / "asurt-release.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

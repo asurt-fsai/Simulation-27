@@ -536,6 +536,7 @@ def launcher_matches(installation, stack, *, relocated=True):
     bridge = "Simulation/CARLA/Bridge/Carla_ASU_Bridge/install/carla_telemetry/lib/python3.10/site-packages/carla_telemetry"
     paths = ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py", f"{launch}/weather_grip.py",
              f"{launch}/road_weather.py", f"{launch}/windows_interop.py", f"{launch}/windows-server.ps1",
+             f"{launch}/process_ownership.py",
              f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py", f"{bridge}/manual_control.py")
     try:
         for name in paths:

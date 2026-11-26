@@ -22,6 +22,8 @@ Install a compatible NVIDIA host driver before running GPU inference. Windows us
 
 Mission and controller modules remain opt-in. Use **ASURT CARLA System Manager** for module switches and **ASURT CARLA Map Packs** for map loading.
 
+**Trackdraw** opens from System Manager with the simulator stopped. **Track Importer** and **Weather Editor** become available when the driving session is ready. A failed optional sensor or perception module is reported in System Manager while the driving session stays available. The packaged launcher uses Ubuntu's matching NumPy, OpenCV, SciPy, and ROS libraries even if the caller has a separate Python environment.
+
 Use **System Manager → Tools → ROS Bags** to record selected live topics into one bag or replay an existing bag with RViz. The tool opens a visible console for recorder and player output. Compressed SQLite bags are expanded into temporary disk or RAM storage for replay. See the [autonomous ROS topic reference](../Tools/RViz/ROS_TOPICS.md) for the active sensor-to-control streams and recording choices.
 
 The bundled VLP-32C uses the `reference` profile at 600,000 rays per simulated second. An explicit `ASURT_VELODYNE_PROFILE` still selects the requested density.

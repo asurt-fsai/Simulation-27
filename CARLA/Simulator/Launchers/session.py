@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 from queue import Queue
+import re
 import signal
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import carla
 import yaml
 
 from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map
+from process_ownership import process_start, recover_orphaned_processes
 from road_weather import RoadWeather
 from weather_grip import WeatherGrip
 from windows_interop import powershell_exe
@@ -49,7 +51,8 @@ RVIZ_PRESETS = {
     "track-control-rviz": "control_track_mode.rviz",
 }
 GOAL_RVIZ = {"planning-goal-pose-rviz", "control-rviz", "track-control-rviz"}
-LIVE_TOOLS = ("track", "weather", "weather-status", "cancel-goal", *RVIZ_PRESETS)
+SESSION_REQUIRED_TOOLS = ("track", "weather", "weather-status", "cancel-goal")
+LIVE_TOOLS = (*SESSION_REQUIRED_TOOLS, *RVIZ_PRESETS)
 MAPS = {"flat-asphalt": "Carla/Maps/FlatAsphalt"}
 MAP_LABELS = {"flat-asphalt": "FlatAsphalt"}
 MAP_PACKS = map_catalog()
@@ -96,14 +99,6 @@ def linux_port_is_listening(port):
     return False
 
 
-def process_start(pid):
-    try:
-        state, *fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        return fields[18] if state != "Z" else None
-    except (FileNotFoundError, ProcessLookupError):
-        return None
-
-
 def foreign_linux_stack():
     for name in Path("/proc").glob("[0-9]*/cmdline"):
         with contextlib.suppress(OSError, IndexError):
@@ -120,10 +115,10 @@ def session_file():
 def running_session():
     try:
         data = json.loads(session_file().read_text())
-    except FileNotFoundError:
+        if data["start"] and data["start"] == process_start(data["pid"]):
+            return data
+    except (OSError, ValueError, KeyError, TypeError):
         return None
-    if data["start"] == process_start(data["pid"]):
-        return data
     return None
 
 
@@ -132,6 +127,20 @@ def last_session_failure():
         return json.loads((LOG_ROOT / "session-start-error.json").read_text())
     except (OSError, ValueError):
         return None
+
+
+def launch_error(log, offset, exit_code):
+    try:
+        with log.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(offset, stream.tell() - 4096))
+            lines = stream.read().decode(errors="replace").strip().splitlines()
+        if lines:
+            message = re.sub(r"^[A-Za-z]+Error: ", "", lines[-1])
+            return f"{message}\nLogs: {log}"
+    except OSError:
+        pass
+    return f"Launch exited with code {exit_code}. Logs: {log}"
 
 
 def record_session(data):
@@ -366,8 +375,13 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                 print(f"ASURT {profile} {MAP_LABELS[map_key]} already running. Logs: {running['log']}")
                 return
             raise RuntimeError("An ASURT simulator is already starting or running. Use its Stop shortcut first.")
+        if running_session() is not None:
+            raise RuntimeError("An ASURT simulator is already running. Stop it before starting a new session.")
+        recovered = recover_orphaned_processes(LOG_ROOT)
+        if recovered:
+            print(f"Stopped {recovered} ASURT process(es) left by a previous session.", flush=True)
         if foreign_linux_stack():
-            raise RuntimeError("An existing CARLA or bridge owns this PC. Stop it through its original launcher first.")
+            raise RuntimeError("Another CARLA server or ROS bridge is running. Close it through its launcher before starting ASURT.")
         domain = int(os.environ.get("ROS_DOMAIN_ID", "46"))
         domain_lock = locks.enter_context((LOG_ROOT / f"ros-domain-{domain}.lock").open("a"))
         try:
@@ -387,13 +401,6 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
             module for module in modules
             if module.script is not None and module.group == "Perception" and enabled[module.name]
         ]
-        source_roles = {
-            "zed2i": ("asurt_zed2i_sim_left", "asurt_zed2i_sim_right"),
-            "velodyne": ("asurt_velodyne_vlp16",),
-        }
-        expected_roles = {
-            role for module in perception_modules for role in source_roles.get(module.name, ())
-        }
         run_dir = LOG_ROOT / (time.strftime("%Y%m%d-%H%M%S") + f"-{profile}-{map_key}-{os.getpid()}")
         run_dir.mkdir()
         display = ":1" if profile == "novnc" else ":0"
@@ -415,6 +422,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
             env["ASURT_COURSE_ORIGIN"] = json.dumps(flat["course_origin"])
         session["perception_modules"] = [module.name for module in perception_modules]
         record_session(session)
+        (run_dir / "session.json").write_text(session_file().read_text())
         processes = {}
         windows_identity = ""
         windows_probe_after = 0.0
@@ -435,7 +443,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                 except RuntimeError as exc:
                     raise RuntimeError(f"Native Windows CARLA exited. See {run_dir} for startup details.") from exc
             for name, proc in processes.items():
-                if session["phase"] == "ready" and name in module_names:
+                if name in module_names:
                     continue
                 if proc.poll() is not None:
                     log = run_dir / f"{name}.log"
@@ -565,7 +573,8 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     while time.monotonic() < deadline:
                         ensure_alive()
                         try:
-                            state = subprocess.run(["ros2", "lifecycle", "get", "/ASU_RT_Carla_Telemetry_Node"],
+                            state = subprocess.run(["ros2", "lifecycle", "get", "--no-daemon",
+                                                   "/ASU_RT_Carla_Telemetry_Node"],
                                                    capture_output=True, text=True, timeout=8)
                             if "active [3]" in state.stdout:
                                 break
@@ -583,8 +592,12 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     road_weather = RoadWeather(run_dir)
                     road_weather.update(world)
                     delta = install_course(session, world, run_dir / "course.log", acceptance, env, flat)
+                    managed = ManagedModules(modules, processes, start, stop_process)
                     for module in perception_modules:
-                        start(module.name, module.command())
+                        try:
+                            start(module.name, module.command())
+                        except OSError as exc:
+                            managed.failed(module.name, f"Launch failed: {exc}", time.monotonic())
                     start("driving", [PYTHON, "-m", "carla_telemetry.manual_control", "--host", host,
                                       "-p", str(port), "--rolename", "hero", "--filter", HERO, "--generation",
                                       generation, "--res", "800x450", "--render-rate", "24", "--attach"])
@@ -592,24 +605,16 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     while True:
                         ensure_alive()
                         world.wait_for_tick(12)
-                        live_roles = [actor.attributes.get("role_name") for actor in world.get_actors()
-                                      if actor.attributes.get("role_name") in expected_roles]
-                        driving_ready = (run_dir / "driving-ready").is_file()
-                        if driving_ready and len(live_roles) == len(expected_roles) and set(live_roles) == expected_roles:
+                        if (run_dir / "driving-ready").is_file():
                             break
                         if time.monotonic() >= deadline:
-                            if not driving_ready:
-                                raise RuntimeError(f"The driving window received no camera frame. See {run_dir / 'driving.log'}")
-                            raise RuntimeError(
-                                f"Sensor actor readiness failed. Found {live_roles}, expected {expected_roles}"
-                            )
+                            raise RuntimeError(f"The driving window received no camera frame. See {run_dir / 'driving.log'}")
                         time.sleep(0.4)
                     session.update(phase="ready", client=client.get_client_version(),
                                    server=client.get_server_version(), map=world_map.name, course_delta=delta)
                     record_session(session)
                     (run_dir / "session.json").write_text(session_file().read_text())
                     print(f"ASURT {profile} ready. Close the driving window or use Stop to end this session.", flush=True)
-                    managed = ManagedModules(modules, processes, start, stop_process)
                     report = run_dir / "module-status.json"
                     previous = None
                     config_error = None
@@ -660,7 +665,10 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                 report_failure(exc)
             raise
         finally:
-            session_file().unlink(missing_ok=True)
+            try:
+                recover_orphaned_processes(LOG_ROOT, run_dir=run_dir)
+            finally:
+                session_file().unlink(missing_ok=True)
 
 
 def tool_path(action, default):
@@ -686,15 +694,21 @@ def tool_path(action, default):
 
 
 def tool(profile, action, arguments, expected_session=None):
-    data = running_session()
+    standalone = action == "trackdraw"
+    data = None if standalone else running_session()
     automatic = profile == "auto"
     if automatic:
         if expected_session is not None and (not data or data["state"] != expected_session):
             raise RuntimeError("The simulator changed. Open the tool again to use the current session.")
-        if action in ("track", "weather", "weather-status", "cancel-goal") and (not data or data["phase"] != "ready"):
-            raise RuntimeError("Start a simulator and wait until it is ready.")
         profile = data["profile"] if data else "wslg"
     display = data["display"] if data and data["profile"] == profile else (":1" if profile == "novnc" else ":0")
+    if action in SESSION_REQUIRED_TOOLS:
+        if not data or data["phase"] != "ready":
+            raise RuntimeError("Start a simulator and wait until it is ready.")
+        if data["profile"] != profile:
+            raise RuntimeError(f"Use the {data['profile']} tool shortcut for the running simulator.")
+    if standalone:
+        display = os.environ.get("DISPLAY", display)
     window_env = dict(os.environ, DISPLAY=display)
     if profile == "novnc":
         window_env.pop("WAYLAND_DISPLAY", None)
@@ -703,21 +717,12 @@ def tool(profile, action, arguments, expected_session=None):
         window_env.update(ASURT_CARLA_HOST=data["host"], ASURT_CARLA_PORT=str(data["port"]))
         if "course_origin" in data:
             window_env["ASURT_COURSE_ORIGIN"] = json.dumps(data["course_origin"])
-    elif profile == "windows":
-        window_env.update(ASURT_CARLA_HOST=windows_host(), ASURT_CARLA_PORT="2100")
-    else:
-        window_env.update(ASURT_CARLA_HOST="127.0.0.1", ASURT_CARLA_PORT="2000")
     if action == "track":
         script = tool_path(action, TOOLS / "Track Importer/cone_track_gui.py")
         if not arguments:
             arguments = [str(ROOT / "Assets/Maps/CSV/test1_3m_clear.csv")]
         if "--state" not in arguments:
-            if not data or data["profile"] != profile:
-                state_dir = LOG_ROOT / "unattached"
-                state_dir.mkdir(parents=True, exist_ok=True)
-                arguments += ["--state", str(state_dir / f"{profile}.json")]
-            else:
-                arguments += ["--state", data["state"]]
+            arguments += ["--state", data["state"]]
         cmd = [PYTHON, script, *arguments]
     elif action in ("weather", "weather-status"):
         stock = TOOLS / "Weather Editor/carla_weather_gui.py"
@@ -730,8 +735,6 @@ def tool(profile, action, arguments, expected_session=None):
         if action in GOAL_RVIZ:
             cmd += ["--ros-args", "-p", "use_sim_time:=true"]
     elif action == "cancel-goal":
-        if not data or data["phase"] != "ready" or data["profile"] != profile:
-            raise RuntimeError("No ready simulator selected for cancelling a goal.")
         cmd = ["bash", tool_path(action, TOOLS / "RViz/cancel_goal.sh")]
     elif action == "manager":
         cmd = [PYTHON, tool_path(action, TOOLS / "Control Center/control_center.py")]
@@ -745,20 +748,21 @@ def tool(profile, action, arguments, expected_session=None):
     elif action == "trackdraw":
         trackdraw = TOOLS / "Trackdraw/fs-trackdraw"
         os.chdir(trackdraw)
-        cmd = [trackdraw / ".venv/bin/python", tool_path(action, trackdraw / "src/main.py")]
-        if os.environ.get("ASURT_PORTABLE"):
+        portable = bool(os.environ.get("ASURT_PORTABLE"))
+        interpreter = PYTHON if portable else trackdraw / ".venv/bin/python"
+        cmd = [interpreter, tool_path(action, trackdraw / "src/main.py")]
+        if portable:
             for variable in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "LD_LIBRARY_PATH"):
                 window_env.pop(variable, None)
+            window_env.update(PYTHONPATH="/usr/lib/python3/dist-packages", PYTHONNOUSERSITE="1")
             if profile in ("windows", "wslg", "novnc"):
                 window_env["QT_QPA_PLATFORM"] = "xcb"
     else:
         raise ValueError(action)
     directory = LOG_ROOT / "tools"
     directory.mkdir(parents=True, exist_ok=True)
-    if action in ("track", "weather", "weather-status") and data and data["profile"] != profile:
-        raise RuntimeError(f"Use the {data['profile']} tool shortcut for the running simulator.")
     bound = action in LIVE_TOOLS and data and data["profile"] == profile and data["phase"] == "ready"
-    lock_name = action if action in (*RVIZ_PRESETS, "manager", "ros-bags") else f"{action}-{profile}"
+    lock_name = action if action in (*RVIZ_PRESETS, "manager", "ros-bags", "trackdraw") else f"{action}-{profile}"
     if bound and action not in RVIZ_PRESETS:
         lock_name = f"{lock_name}-{Path(data['state']).parent.name}"
     with (directory / f"{lock_name}.lock").open("a") as lock:

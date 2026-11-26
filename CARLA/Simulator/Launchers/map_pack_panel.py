@@ -11,7 +11,7 @@ import zipfile
 if os.environ.get("ASURT_ROOT"):
     sys.path.insert(0, str(Path(os.environ["ASURT_ROOT"]) / "Simulation/CARLA/Launchers"))
 from map_packs import catalog, register
-from session import LAUNCH, LOG_ROOT, PROFILES, PYTHON, last_session_failure, running_session
+from session import LAUNCH, LOG_ROOT, PROFILES, PYTHON, last_session_failure, launch_error, running_session
 
 
 def main():
@@ -57,7 +57,7 @@ def main():
         except (OSError, ValueError, KeyError, AttributeError, TypeError, zipfile.BadZipFile) as exc:
             status.set(str(exc))
 
-    def check_launch(key, target, previous_error):
+    def check_launch(key, target, previous_error, log, offset):
         state = running_session()
         failure = last_session_failure()
         if state and state["map_key"] == key and state["profile"] == target and state["phase"] == "ready":
@@ -65,13 +65,13 @@ def main():
         elif failure and failure != previous_error and (failure["profile"], failure["map_key"]) == (target, key):
             if process.poll() is None:
                 status.set(f"{failure['message']}\nClosing the failed session. Logs: {failure['log']}")
-                root.after(500, check_launch, key, target, previous_error)
+                root.after(500, check_launch, key, target, previous_error, log, offset)
                 return
             status.set(f"{failure['message']}\nLogs: {failure['log']}")
         elif process.poll() is not None:
-            status.set(f"Launch exited with code {process.returncode}. See map-switch.log.")
+            status.set(launch_error(log, offset, process.returncode))
         else:
-            root.after(500, check_launch, key, target, previous_error)
+            root.after(500, check_launch, key, target, previous_error, log, offset)
             return
         load_button.state(["!disabled"])
 
@@ -82,6 +82,9 @@ def main():
         key = map_entries[map_name.get()]
         if current and current["profile"] != target:
             status.set(f"Select {PROFILES[current['profile']]} to switch the running simulator.")
+            return
+        if current and current["phase"] != "ready":
+            status.set("Wait for the current simulator to finish starting or shutting down.")
             return
         if current and current["map_key"] == key:
             status.set(f"{map_name.get()} is already selected.")
@@ -98,6 +101,7 @@ def main():
         try:
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("ab") as stream:
+                offset = stream.tell()
                 process = subprocess.Popen(["bash", LAUNCH / "ros-parity-env.sh", PYTHON,
                                             LAUNCH / "session.py", *arguments],
                                            stdout=stream, stderr=subprocess.STDOUT,
@@ -107,7 +111,7 @@ def main():
             return
         status.set(f"Loading {map_name.get()} in a fresh session.")
         load_button.state(["disabled"])
-        root.after(500, check_launch, key, target, previous_error)
+        root.after(500, check_launch, key, target, previous_error, log, offset)
 
     ttk.Button(panel, text="Add Map Pack…", command=add).grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=8)
     load_button = ttk.Button(panel, text="Load Map", command=load_map)

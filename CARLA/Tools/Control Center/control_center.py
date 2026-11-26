@@ -16,7 +16,8 @@ LAUNCH = ROOT / "Simulation/CARLA/Launchers" if os.environ.get("ASURT_PORTABLE")
 sys.path[:0] = [str(ROOT / "tools/RViz"), str(LAUNCH)]
 import module_control
 from module_settings import ModuleSettings
-from session import MAP_LABELS, PROFILES, RVIZ_PRESETS, last_session_failure, running_session
+from session import (LOG_ROOT, MAP_LABELS, PROFILES, RVIZ_PRESETS, SESSION_REQUIRED_TOOLS,
+                     last_session_failure, launch_error, running_session)
 
 MANAGER = ROOT / "tools/RViz/manage.py"
 VIEW_STATE = module_control.CONFIG / "control-center-view.json"
@@ -56,6 +57,8 @@ class ControlCenter:
         root.configure(bg=BG)
         self.busy = False
         self.messages = queue.Queue()
+        self.tool_buttons = {}
+        self.tool_processes = {}
         self.cards = {}
         self.group_buttons = []
         self.group_action_buttons = {}
@@ -249,6 +252,7 @@ class ControlCenter:
                 action = self.confirm_quit if name == "Quit CARLA" else (
                     lambda n=name: self.launch_tool(n))
                 button = self.button(buttons, name, action)
+                self.tool_buttons[name] = button
                 button.configure(padx=5, pady=5, wraplength=130,
                                  font=("DejaVu Sans", 9, "bold"))
                 button.grid(row=index // 2, column=index % 2, sticky="ew", padx=2, pady=2)
@@ -329,13 +333,20 @@ class ControlCenter:
 
     def refresh(self, *, schedule=True):
         try:
-            self.snapshot = module_control.live_states(running_session())
+            active = running_session()
+            ready = bool(active and active["phase"] == "ready")
+            self.weather_status.configure(state="normal" if ready else "disabled")
+            self.tool_buttons["Quit CARLA"].configure(state="normal" if active else "disabled")
+            for name, action in TOOLS.items():
+                if action in SESSION_REQUIRED_TOOLS:
+                    self.tool_buttons[name].configure(state="normal" if ready else "disabled")
+            self.snapshot = module_control.live_states(active)
             on = self.snapshot["carla_listening"]
             session = self.snapshot.get("session")
             if session and session["phase"] != "failed":
                 state = session["phase"]
                 profile = PROFILES.get(session["profile"], session["profile"])
-                track = MAP_LABELS[session["map_key"]]
+                track = MAP_LABELS.get(session["map_key"], session["map_key"])
                 connection = f"{profile} · {track} · {session['host']}:{session['port']} · {state}"
             else:
                 failure = last_session_failure()
@@ -343,7 +354,6 @@ class ControlCenter:
                               else "No ASURT simulator session is active")
             self.connection.set(connection)
             self.online.configure(fg=GREEN if on else GOLD)
-            self.weather_status.configure(state="normal" if on and session and session["phase"] == "ready" else "disabled")
             if (os.environ.get("ASURT_PROFILE") == "windows"
                     and not (LAUNCH.parent / "Runtime/Active/asurt-linux-flat").is_dir()):
                 if not self.wslg_download.winfo_manager():
@@ -416,6 +426,10 @@ class ControlCenter:
 
     def launch_tool(self, name):
         active = running_session()
+        running = self.tool_processes.get(name)
+        if running and running[0].poll() is None:
+            self.info.set(f"{name} is already open.")
+            return
         if name == "Quit CARLA":
             if not active:
                 return
@@ -428,8 +442,8 @@ class ControlCenter:
         else:
             action = (PLANNING_VIEWS[self.planning_view.get()]
                       if name == "Planning RViz" else TOOLS[name])
-            if action == "cancel-goal" and (not active or active["phase"] != "ready"):
-                self.info.set("Start a simulator before cancelling a goal.")
+            if action in SESSION_REQUIRED_TOOLS and (not active or active["phase"] != "ready"):
+                self.info.set(f"Start a simulator before opening {name}.")
                 return
             args = ["auto", action]
             if active and action not in ("trackdraw", "ros-bags"):
@@ -437,12 +451,14 @@ class ControlCenter:
         command = [sys.executable, LAUNCH / "session.py", *args]
         if args[1] in (*RVIZ_PRESETS, "cancel-goal", "ros-bags"):
             command = ["bash", LAUNCH / "ros-parity-env.sh", *command]
-        logs = Path.home() / "log/carla/tools"
+        log = LOG_ROOT / "tools" / f"system-manager-{args[1]}.log"
         try:
-            logs.mkdir(parents=True, exist_ok=True)
-            with (logs / "system-manager.log").open("ab") as stream:
-                subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stream,
-                                 stderr=subprocess.STDOUT, start_new_session=True)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("ab") as stream:
+                offset = stream.tell()
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stream,
+                                           stderr=subprocess.STDOUT, start_new_session=True)
+            self.tool_processes[name] = process, log, offset
         except OSError as exc:
             self.info.set(f"Could not launch {name}: {exc}")
 
@@ -452,6 +468,11 @@ class ControlCenter:
             self.launch_tool("Quit CARLA")
 
     def poll(self):
+        for name, (process, log, offset) in tuple(self.tool_processes.items()):
+            if (code := process.poll()) is not None:
+                del self.tool_processes[name]
+                if code:
+                    self.info.set(f"Could not open {name}. {launch_error(log, offset, code)}")
         while not self.messages.empty():
             ok, output = self.messages.get_nowait()
             self.busy = False
