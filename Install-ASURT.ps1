@@ -111,7 +111,8 @@ if ($embeddedLinuxInstaller -ne ('__ASURT_' + 'EMBEDDED_LINUX_INSTALLER__')) {
     Copy-Item -LiteralPath $sourceShell -Destination $script -Force
 }
 function Convert-AsurtPath([string]$Path) {
-    $value=((& $wslPath -d $Distribution -- wslpath -u $Path) | Out-String).Trim()
+    $forwardPath=$Path.Replace('\','/')
+    $value=((& $wslPath -d $Distribution --exec wslpath -u $forwardPath) | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or !$value) { throw "Could not translate $Path into WSL." }
     return $value
 }
