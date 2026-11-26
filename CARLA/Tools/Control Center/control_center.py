@@ -16,7 +16,7 @@ LAUNCH = ROOT / "Simulation/CARLA/Launchers" if os.environ.get("ASURT_PORTABLE")
 sys.path[:0] = [str(ROOT / "tools/RViz"), str(LAUNCH)]
 import module_control
 from module_settings import ModuleSettings
-from session import MAP_LABELS, PROFILES, RVIZ_PRESETS, running_session
+from session import MAP_LABELS, PROFILES, RVIZ_PRESETS, last_session_failure, running_session
 
 MANAGER = ROOT / "tools/RViz/manage.py"
 VIEW_STATE = module_control.CONFIG / "control-center-view.json"
@@ -182,6 +182,9 @@ class ControlCenter:
         title_row = tk.Frame(header, bg=BG)
         title_row.pack(fill="x")
         self.button(title_row, "Module Settings", self.open_module_settings).pack(side="right")
+        self.weather_status = self.button(title_row, "Weather Status", lambda: self.launch_tool("Weather Status"))
+        self.weather_status.pack(side="right", padx=(0, 8))
+        self.wslg_download = self.button(header, "Download WSLg", self.download_wslg)
         self.label(title_row, "CARLA System Manager", 23, FG, True).pack(side="left")
         self.online = self.label(header, "", 10, DIM)
         self.online.configure(textvariable=self.connection)
@@ -329,15 +332,24 @@ class ControlCenter:
             self.snapshot = module_control.live_states(running_session())
             on = self.snapshot["carla_listening"]
             session = self.snapshot.get("session")
-            if session:
-                state = "ready" if on else "starting"
-                profile = PROFILES[session["profile"]]
+            if session and session["phase"] != "failed":
+                state = session["phase"]
+                profile = PROFILES.get(session["profile"], session["profile"])
                 track = MAP_LABELS[session["map_key"]]
                 connection = f"{profile} · {track} · {session['host']}:{session['port']} · {state}"
             else:
-                connection = "No ASURT simulator session is active"
+                failure = last_session_failure()
+                connection = (f"CARLA stopped · {failure['message']}" if failure
+                              else "No ASURT simulator session is active")
             self.connection.set(connection)
             self.online.configure(fg=GREEN if on else GOLD)
+            self.weather_status.configure(state="normal" if on and session and session["phase"] == "ready" else "disabled")
+            if (os.environ.get("ASURT_PROFILE") == "windows"
+                    and not (LAUNCH.parent / "Runtime/Active/asurt-linux-flat").is_dir()):
+                if not self.wslg_download.winfo_manager():
+                    self.wslg_download.pack(anchor="w", pady=(6, 0))
+            elif self.wslg_download.winfo_manager():
+                self.wslg_download.pack_forget()
             self.populate(self.snapshot["modules"])
             group_counts = {}
             for item in self.snapshot["modules"]:
@@ -387,6 +399,18 @@ class ControlCenter:
     def open_module_settings(self):
         ModuleSettings(self.root, self.refresh)
 
+    def download_wslg(self):
+        from release_update import launch_terminal
+
+        if not messagebox.askyesno("Install WSLg", "Download the optional WSLg renderer? "
+                                  "The installer will close the simulator and open a terminal.", parent=self.root):
+            return
+        try:
+            launch_terminal(ROOT, "windows", add_wslg=True)
+            self.info.set("WSLg installer opened. Follow its progress in the terminal.")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            self.info.set(f"Could not start the WSLg installer: {exc}")
+
     def toggle_group(self, group, enabled):
         self.task("--enable-group" if enabled else "--disable-group", group)
 
@@ -396,6 +420,11 @@ class ControlCenter:
             if not active:
                 return
             args = [active["profile"], "stop", "--session-state", active["state"]]
+        elif name == "Weather Status":
+            if not active or active["phase"] != "ready":
+                self.info.set("Start a simulator to view live weather.")
+                return
+            args = ["auto", "weather-status", "--session-state", active["state"]]
         else:
             action = (PLANNING_VIEWS[self.planning_view.get()]
                       if name == "Planning RViz" else TOOLS[name])

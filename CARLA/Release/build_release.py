@@ -35,6 +35,16 @@ MODULES = (
     "Simulation/Systems/Perception", "Simulation/Systems/SLAM",
     "Simulation/Systems/PathPlanning", "Simulation/Systems/Control",
 )
+PYTHON_ADAPTERS = {
+    "asurt_zed2i_sim": "Camera",
+    "asurt_velodyne_sim": "LiDAR",
+}
+DRIVING_SOURCE = Path("CARLA/Simulator/Bridge/src/ros_apps/carla_telemetry/carla_telemetry/manual_control.py")
+BRIDGE = Path("Simulation/CARLA/Bridge/Carla_ASU_Bridge")
+DRIVING_INSTALL = BRIDGE / "install/carla_telemetry/lib/python3.10/site-packages/carla_telemetry/manual_control.py"
+ADAPTERS = Path("Adapters/CARLA")
+PERCEPTION = Path("Simulation/Systems/Perception")
+PERCEPTION_WORKSPACE = PERCEPTION / "Workspace/autonomy_integration"
 DEP_PKG = "Simulation/Systems/Perception/Dependencies/onnxruntime"
 LEGACY = "Simulation/Systems/Legacy/fs-system-26-oldstack/Deeplearning/src/planning_deep_learning/planning_deep_learning/Completed_Models/best_model.onnx"
 
@@ -85,11 +95,27 @@ def copy_overlay(source, target):
     (target / "setup.bash").write_text('source "$(dirname -- "${BASH_SOURCE[0]}")/local_setup.bash"\n')
 
 
+def copy_python_adapter_file(package, filename, stack):
+    adapter = ADAPTERS / PYTHON_ADAPTERS[package] / package / package / filename
+    source = REPOSITORY / "CARLA/Modules/Perception" / adapter
+    install = PERCEPTION_WORKSPACE / "install" / package / "lib/python3.10/site-packages" / package
+    build_source = PERCEPTION_WORKSPACE / "src" / package / package
+    for destination in (PERCEPTION / adapter, build_source / filename, install / filename):
+        copy(source, stack / destination)
+
+
+def copy_driving_window(stack):
+    editable = BRIDGE.joinpath(*DRIVING_SOURCE.parts[3:])
+    for destination in (editable, DRIVING_INSTALL):
+        copy(REPOSITORY / DRIVING_SOURCE, stack / destination)
+
+
 def adapt_launchers(source, stack):
     launch = stack / "Simulation/CARLA/Launchers"
     launch.mkdir(parents=True, exist_ok=True)
     for name in ("map_packs.py", "map_pack_panel.py", "managed_modules.py", "native_vulkan.py", "release_update.py",
-                 "tools-launcher.py", "world_selection.py", "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
+                 "world_selection.py", "weather_grip.py", "road_weather.py", "windows_interop.py",
+                 "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
         copy(source / name, launch / name)
     copy(HERE / "asurt", stack / "bin/asurt")
     copy(HERE / "dev-build", stack / "bin/dev-build")
@@ -100,9 +126,13 @@ def adapt_launchers(source, stack):
     command = command.replace('ROOT = Path.home() / "ASURT"', 'ROOT = Path(os.environ["ASURT_ROOT"])')
     command = command.replace('LOG_ROOT = ROOT / "log" / "carla"', 'LOG_ROOT = Path(os.environ["ASURT_STATE_ROOT"]) / "log/carla"')
     command = command.replace('PYTHON = ROOT / ".venvs/carla/bin/python"', 'PYTHON = Path(sys.executable)')
-    command = command.replace('PROFILES = {"wslg": "WSLg", "novnc": "noVNC", "windows": "Native Windows"}',
-                              'PROFILES = ({"windows": "Native Windows", "wslg": "WSLg", "novnc": "noVNC"} '
-                              'if os.environ["ASURT_PROFILE"] == "windows" else {"linux": "Ubuntu"})')
+    command = command.replace('PROFILES = {"wslg": "WSLg", "novnc": "noVNC", "windows": "Native Windows"}', '''PROFILES = {"linux": "Ubuntu"}
+if os.environ["ASURT_PROFILE"] == "windows":
+    PROFILES = {"windows": "Native Windows"}
+    if (CARLA_ROOT / "Runtime/Active/asurt-linux-flat").is_dir():
+        PROFILES["wslg"] = "WSLg"
+        if (LOG_ROOT.parents[2] / ".private-viewer").is_file():
+            PROFILES["novnc"] = "noVNC"''')
     command = command.replace('MAPS = {"silverstone": "Carla/Maps/silverstone/silverstone", "flat-asphalt": "Carla/Maps/FlatAsphalt"}',
                               'MAPS = {"flat-asphalt": "Carla/Maps/FlatAsphalt"}')
     command = command.replace('MAP_LABELS = {"silverstone": "Silverstone", "flat-asphalt": "FlatAsphalt"}',
@@ -136,18 +166,9 @@ def adapt_launchers(source, stack):
                               '        from novnc_viewer import open_viewer\n        open_viewer(LOG_ROOT)\n'
                               '    elif args.action in ("stop", "status"):')
     command = command.replace('trackdraw / ".venv/bin/python"', 'PYTHON')
-    command = command.replace('args = ["powershell.exe", "-NoProfile", "-File", script,',
-                              'args = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,')
     command = command.replace('def start(name, args, *, environment=env):', 'def start(name, args, *, environment=env, cwd=None):')
     command = command.replace('proc = subprocess.Popen(args, env=environment, stdout=output, stderr=subprocess.STDOUT,',
                               'proc = subprocess.Popen(args, cwd=cwd, env=environment, stdout=output, stderr=subprocess.STDOUT,')
-    a = command.index('        windows_runtime =')
-    b = command.index('        def start(', a)
-    command = command[:a] + '''        windows_runtime = windows_flat_pointer() if profile == "windows" else ""
-        if windows_runtime:
-            session["runtime"] = windows_runtime
-
-''' + command[b:]
     a = command.index('            else:', command.index('        def server():'))
     b = command.index('        def shutdown(', a)
     command = command[:a] + '''            else:
@@ -201,7 +222,7 @@ def adapt_launchers(source, stack):
 
 ''' + command[b:]
     a = command.index('                        while time.monotonic() < deadline:')
-    b = command.index('                    client, world, world_map', a)
+    b = command.index('                    try:\n                        client, world, world_map', a)
     command = command[:a] + command[b:]
     compile(command, "session.py", "exec")
     (launch / "session.py").write_text(command)
@@ -277,6 +298,10 @@ def build_stack(args, output, workspace):
         copy(source / bridge / folder, stack / bridge / folder)
     for folder in OVERLAYS:
         copy_overlay(source / folder / "install", stack / folder / "install")
+    for package in PYTHON_ADAPTERS:
+        for name in ("node.py", "weather.py"):
+            copy_python_adapter_file(package, name, stack)
+    copy_driving_window(stack)
     common = Path(OVERLAYS[0]) / "src"
     for package in ("asurt_msgs", "tf_helper"):
         copy(source / common / package, stack / common / package)

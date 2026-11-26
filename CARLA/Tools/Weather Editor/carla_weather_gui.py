@@ -7,7 +7,7 @@ merged and applied to freshly fetched WeatherParameters to preserve other fields
 """
 from __future__ import annotations
 
-import math
+import argparse
 import os
 import queue
 import sys
@@ -18,26 +18,13 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
+from weather_control import (ATMOS_FIELDS, BY_NAME, CAMERA_PRESETS, LIGHT_FIELDS,
+                             camera_heading, clean_value, read_status, scene_preset,
+                             set_weather_fields, thermal_status, weather_values)
+
 CARLA_HOST = os.environ.get("ASURT_CARLA_HOST", "127.0.0.1")
 CARLA_PORT = int(os.environ.get("ASURT_CARLA_PORT", "2000"))
-
-# name, display label, min, max, resolution, units
-FIELDS = (
-    ("sun_azimuth_angle", "Sun azimuth", 0, 360, 1, "°"),
-    ("sun_altitude_angle", "Sun altitude", -90, 90, 1, "°"),
-    ("cloudiness", "Cloud cover", 0, 100, 1, "%"),
-    ("precipitation", "Rainfall", 0, 100, 1, "%"),
-    ("precipitation_deposits", "Standing water", 0, 100, 1, "%"),
-    ("wetness", "Road wetness", 0, 100, 1, "%"),
-    ("wind_intensity", "Wind", 0, 100, 1, "%"),
-    ("fog_density", "Fog density", 0, 100, 1, "%"),
-    ("fog_distance", "Fog start distance", 0, 200, 0.5, "m"),
-    ("fog_falloff", "Fog height falloff", 0, 10, 0.05, ""),
-    ("dust_storm", "Dust storm", 0, 100, 1, "%"),
-)
-BY_NAME = {item[0]: item for item in FIELDS}
-LIGHT_FIELDS = ("sun_azimuth_angle", "sun_altitude_angle", "cloudiness")
-ATMOS_FIELDS = tuple(x[0] for x in FIELDS if x[0] not in LIGHT_FIELDS)
+ROAD_WEATHER_DIR = os.environ.get("ASURT_ROAD_WEATHER_DIR")
 
 BACKGROUND = "#101826"
 CARD = "#192536"
@@ -49,69 +36,10 @@ SUCCESS = "#75d7a2"
 WARNING = "#ffce78"
 
 
-def clean_value(name: str, raw: float) -> float:
-    """Validate and quantize one allowed CARLA WeatherParameters control."""
-    if name not in BY_NAME:
-        raise ValueError("Unknown weather parameter: " + name)
-    _, _, lower, upper, resolution, _ = BY_NAME[name]
-    value = float(raw)
-    if not math.isfinite(value):
-        raise ValueError("Weather values must be finite")
-    value = min(upper, max(lower, value))
-    steps = round((value - lower) / resolution)
-    return round(lower + steps * resolution, 5)
-
-
-def weather_values(weather) -> dict[str, float]:
-    return {name: float(getattr(weather, name))
-            for name in BY_NAME if hasattr(weather, name)}
-
-
-def set_weather_fields(world, updates: dict[str, float]) -> dict[str, float]:
-    """Preserve unedited CARLA weather settings; only set explicitly touched fields."""
-    checked = {key: clean_value(key, value) for key, value in updates.items()}
-    current = world.get_weather()
-    for key, value in checked.items():
-        setattr(current, key, value)
-    if checked:
-        world.set_weather(current)
-    return weather_values(world.get_weather())
-
-
-CAMERA_PRESETS = ("sun_low", "sun_high", "sun_behind")
-
-
-def scene_preset(name: str, heading: float | None) -> dict[str, float]:
-    """Return changed fields only. Heading comes from the live ZED left camera."""
-    sunny = dict(cloudiness=0, precipitation=0, precipitation_deposits=0,
-                 fog_density=0, dust_storm=0)
-    if name in CAMERA_PRESETS:
-        if heading is None:
-            raise ValueError("Camera heading unavailable. Check that the ZED stereo camera is streaming.")
-        sunny["sun_azimuth_angle"] = (heading + (180 if name == "sun_behind" else 0)) % 360
-        sunny["sun_altitude_angle"] = 10 if name != "sun_high" else 35
-        return sunny
-    presets = {
-        "clear_noon": dict(sunny, sun_altitude_angle=70),
-        "overcast": dict(cloudiness=90, precipitation=0, precipitation_deposits=0,
-                         fog_density=6, dust_storm=0),
-        "heavy_rain": dict(cloudiness=95, precipitation=85, precipitation_deposits=70,
-                           wetness=90, wind_intensity=65, fog_density=16, dust_storm=0),
-        "dense_fog": dict(cloudiness=70, precipitation=0, precipitation_deposits=0,
-                          fog_density=85, fog_distance=0, fog_falloff=2.0,
-                          dust_storm=0),
-        "dust": dict(cloudiness=20, precipitation=0, precipitation_deposits=0,
-                     fog_density=12, dust_storm=85, wind_intensity=70),
-    }
-    if name not in presets:
-        raise ValueError("Unknown preset: " + name)
-    return presets[name]
-
-
 class CarlaWorker(threading.Thread):
     """All potentially blocking CARLA RPC calls run in one background thread."""
 
-    def __init__(self, requests: queue.Queue, results: queue.Queue):
+    def __init__(self, requests: queue.Queue, results: queue.Queue, *, status_only=False):
         super().__init__(name="carla-weather-rpc", daemon=True)
         self.requests = requests
         self.results = results
@@ -119,9 +47,17 @@ class CarlaWorker(threading.Thread):
         self.world = None
         self.camera_heading = None
         self.last_observed = {}
+        self.status_only = status_only
+        self.map_name = None
 
     def send(self, kind: str, **kwargs):
         self.results.put((kind, kwargs))
+
+    def road(self):
+        return thermal_status(ROAD_WEATHER_DIR, self.world.get_snapshot().timestamp.elapsed_seconds)
+
+    def status(self):
+        self.send("status", **read_status(self.world, self.map_name, ROAD_WEATHER_DIR))
 
     def connect(self, initial: bool):
         try:
@@ -129,12 +65,19 @@ class CarlaWorker(threading.Thread):
             self.client = carla.Client(CARLA_HOST, CARLA_PORT)
             self.client.set_timeout(2.5)
             self.world = self.client.get_world()
+            if self.world.get_snapshot().frame == 0:
+                self.world.wait_for_tick(2.5)
+            self.map_name = self.world.get_map().name
+            if self.status_only:
+                self.status()
+                return
             observed = weather_values(self.world.get_weather())
             self.last_observed = observed
             self.update_heading()
             self.send("connected", weather=observed,
                       heading=self.camera_heading,
-                      map=self.world.get_map().name,
+                      map=self.map_name,
+                      road=self.road(),
                       initial=initial)
         except Exception as exc:
             self.client = self.world = None
@@ -145,12 +88,7 @@ class CarlaWorker(threading.Thread):
             self.camera_heading = None
             return
         try:
-            if self.world.get_snapshot().frame == 0:
-                self.world.wait_for_tick(2.5)
-            cameras = [actor for actor in self.world.get_actors().filter("sensor.camera.rgb")
-                       if actor.attributes.get("role_name") == "asurt_zed2i_sim_left"]
-            self.camera_heading = (float(cameras[0].get_transform().rotation.yaw)
-                                   if len(cameras) == 1 else None)
+            self.camera_heading = camera_heading(self.world)
         except Exception:
             self.camera_heading = None
 
@@ -166,12 +104,19 @@ class CarlaWorker(threading.Thread):
                 elif kind == "refresh":
                     if self.world is None:
                         self.connect(initial=False)
+                    elif self.status_only:
+                        self.status()
                     else:
                         self.update_heading()
                         values = weather_values(self.world.get_weather())
                         self.last_observed = values
                         self.send("observed", weather=values,
-                                  heading=self.camera_heading)
+                                  heading=self.camera_heading, road=self.road())
+                elif kind == "temperature":
+                    if self.world is None:
+                        raise RuntimeError("Connect to CARLA before setting temperature.")
+                    set_weather_fields(self.world, {"air_temperature_c": payload["value"]}, ROAD_WEATHER_DIR)
+                    self.status()
                 elif kind in ("apply", "camera-preset"):
                     if self.world is None:
                         raise RuntimeError("Not connected to CARLA; reconnect before applying")
@@ -192,10 +137,10 @@ class CarlaWorker(threading.Thread):
                             self.requests.get_nowait()
                             updates.update(more["updates"])
                             revision = more["revision"]
-                    values = set_weather_fields(self.world, updates)
+                    values = set_weather_fields(self.world, updates, ROAD_WEATHER_DIR)
                     self.last_observed = values
                     self.send("applied", weather=values, revision=revision, updates=updates,
-                              heading=self.camera_heading, camera_preset=kind == "camera-preset")
+                              heading=self.camera_heading, camera_preset=kind == "camera-preset", road=self.road())
             except Exception as exc:
                 self.send("error", message=f"{kind}: {exc}")
 
@@ -224,6 +169,8 @@ class WeatherPanel:
         self.heading_var = tk.StringVar(value="Camera heading: not available")
         self.scene_var = tk.StringVar(value="Source: waiting for CARLA…")
         self.feedback_var = tk.StringVar(value="No simulation changes until you move a control or choose a preset.")
+        self.road_var = tk.StringVar()
+        self.rain_seconds = tk.StringVar(value="60")
         self._style()
         self._build()
         self.worker.start()
@@ -257,7 +204,7 @@ class WeatherPanel:
         shell = ttk.Frame(self.root, padding=(20, 18))
         shell.pack(fill="both", expand=True)
         ttk.Label(shell, text="CARLA Weather Studio", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(shell, text="Native Silverstone  •  live weather + camera-facing sun tests  •  no vehicle commands",
+        ttk.Label(shell, text="Live weather for the active CARLA map",
                   style="Muted.TLabel").pack(anchor="w", pady=(3, 14))
         toolbar = ttk.Frame(shell)
         toolbar.pack(fill="x", pady=(0, 12))
@@ -276,6 +223,14 @@ class WeatherPanel:
         ttk.Label(left, text="☀  SUN & SKY", style="Header.TLabel").pack(anchor="w", pady=(0, 12))
         for name in LIGHT_FIELDS:
             self._add_slider(left, name)
+        if ROAD_WEATHER_DIR:
+            self._add_slider(left, "air_temperature_c")
+            row = ttk.Frame(left, style="Card.TFrame")
+            row.pack(fill="x", pady=(8, 0))
+            ttk.Button(row, text="Start timed rain", command=self.start_timed_rain).pack(side="left")
+            ttk.Spinbox(row, from_=1, to=3600, textvariable=self.rain_seconds, width=5).pack(side="left", padx=6)
+            ttk.Label(row, text="seconds", style="Card.TLabel").pack(side="left")
+            ttk.Label(left, textvariable=self.road_var, style="Hint.TLabel", wraplength=360).pack(anchor="w", pady=(6, 0))
         ttk.Label(left, text="Align sun with the camera for strong frontal glare.",
                   style="Hint.TLabel", wraplength=375).pack(anchor="w", pady=(12, 7))
         for title, preset in [("Sun into camera · low 10°", "sun_low"),
@@ -293,7 +248,7 @@ class WeatherPanel:
         ttk.Label(presets, text="QUICK CONDITIONS", style="Muted.TLabel").pack(
             side="left", padx=(0, 8))
         for label, name in [("Overcast", "overcast"), ("Heavy rain", "heavy_rain"),
-                            ("Dense fog", "dense_fog"), ("Dust", "dust")]:
+                            ("Dense fog", "dense_fog"), ("Dust", "dust"), ("Wet road", "wet_road")]:
             ttk.Button(presets, text=label, command=lambda p=name: self.preset(p)).pack(
                 side="left", padx=3)
         ttk.Button(presets, text="Restore launch weather", command=self.restore_start).pack(
@@ -355,6 +310,23 @@ class WeatherPanel:
         updates = self.pending.copy()
         self.pending.clear()
         self.requests.put(("apply", {"revision": self.revision, "updates": updates}))
+
+    def start_timed_rain(self):
+        try:
+            duration = clean_value("rain_duration_s", self.rain_seconds.get())
+            if duration <= 0:
+                raise ValueError("Choose a positive duration for timed rain.")
+        except ValueError as exc:
+            self.feedback_var.set(str(exc))
+            return
+        if not self.connected:
+            self.feedback_var.set("Connect to CARLA before starting timed rain.")
+            return
+        self.pending.update(rain_duration_s=duration,
+                            precipitation=self.controls["precipitation"][0].get() or 75.0)
+        self.revision += 1
+        self.last_edit = time.monotonic()
+        self._submit()
 
     def preset(self, name):
         if not self.connected:
@@ -421,8 +393,17 @@ class WeatherPanel:
                 self.connected = True
                 if self.original is None:
                     self.original = data["weather"].copy()
+                    if "air_temperature_c" in data["road"]:
+                        self.original["air_temperature_c"] = data["road"]["air_temperature_c"]
                 self.scene_var.set("Map: " + data["map"] + f"  |  CARLA {CARLA_HOST}:{CARLA_PORT}")
             if kind in ("connected", "observed", "applied"):
+                road = data["road"]
+                if "asphalt_temperature_c" in road:
+                    remaining = road.get("rain_remaining_s")
+                    self.road_var.set(f"Asphalt {road['asphalt_temperature_c']:.1f} °C   ·   "
+                                      f"Tyres {road['tire_temperature_c']:.1f} °C" +
+                                      (f"   ·   Timed rain {remaining}s left" if remaining is not None else ""))
+                readings = {**data["weather"], **road}
                 if "heading" in data:
                     self.heading = data["heading"]
                     self.heading_var.set(
@@ -432,9 +413,9 @@ class WeatherPanel:
                 recent = (time.monotonic() - self.last_edit < 1.0)
                 stale = kind == "applied" and data["revision"] < self.revision
                 if not self.pending and not stale and (not recent or data.get("camera_preset")):
-                    self._fill(data["weather"])
+                    self._fill(readings)
                 if kind == "connected":
-                    self._fill(data["weather"])
+                    self._fill(readings)
                 self.status_var.set("● LIVE · CARLA weather available")
                 if kind == "applied":
                     self.feedback_var.set(
@@ -451,9 +432,79 @@ class WeatherPanel:
         self.root.destroy()
 
 
+class WeatherStatusPanel:
+    def __init__(self, root):
+        self.root = root
+        root.title("ASURT | Weather Status")
+        root.configure(bg=BACKGROUND, padx=18, pady=16)
+        self.values = tk.StringVar(value="Reading live weather…")
+        tk.Label(root, textvariable=self.values, bg=BACKGROUND, fg=TEXT, justify="left",
+                 anchor="w", font=("DejaVu Sans", 11)).pack(fill="both", expand=True)
+        self.requests = queue.Queue()
+        self.results = queue.Queue()
+        if ROAD_WEATHER_DIR:
+            self.temperature = tk.StringVar()
+            controls = ttk.Frame(root)
+            controls.pack(fill="x", pady=(9, 0))
+            ttk.Spinbox(controls, from_=-20, to=65, textvariable=self.temperature, width=6).pack(side="left")
+            ttk.Button(controls, text="Set air temperature (°C)", command=self.set_temperature).pack(side="left", padx=6)
+        CarlaWorker(self.requests, self.results, status_only=True).start()
+        root.after(100, self.drain)
+        root.after(1500, self.refresh)
+        root.protocol("WM_DELETE_WINDOW", self.close)
+
+    def refresh(self):
+        if self.requests.empty():
+            self.requests.put(("refresh", {}))
+        self.root.after(1500, self.refresh)
+
+    def drain(self):
+        while not self.results.empty():
+            kind, data = self.results.get_nowait()
+            if kind == "error":
+                self.values.set(data["message"])
+                continue
+            wet = data["weather"]
+            road = data["road"]
+            grip = data["road_grip"]
+            entries = [data["map"].rsplit("/", 1)[-1], ""]
+            if "asphalt_temperature_c" in road:
+                entries.extend((f"Air temperature  {road['air_temperature_c']:.1f} °C",
+                                f"Asphalt temperature  {road['asphalt_temperature_c']:.1f} °C",
+                                f"Estimated tyre temperature  {road['tire_temperature_c']:.1f} °C"))
+                if not self.temperature.get():
+                    self.temperature.set(str(road["air_temperature_c"]))
+                if road["rain_remaining_s"] is not None:
+                    entries.append(f"Timed rain remaining  {road['rain_remaining_s']} s")
+                elif wet["wetness"]:
+                    entries.append(f"Drying rate  {road['drying_percent_per_minute']:.1f}% per minute")
+            for key, label in (("wetness", "Road wetness"), ("precipitation", "Rainfall"),
+                               ("precipitation_deposits", "Standing water"), ("fog_density", "Fog density"),
+                               ("dust_storm", "Dust"), ("cloudiness", "Cloud cover"), ("wind_intensity", "Wind")):
+                entries.append(f"{label}  {wet[key]:.0f}%")
+            grip_text = "Manual or map override" if grip["manual_or_map_override"] else f"{grip['weather_multiplier']:.0%} of dry grip"
+            entries.extend(("", f"Weather grip setting  {grip_text}", "Tyres  FL / FR / RL / RR"))
+            for key, label in (("configured", "Configured grip"), ("effective_while_rolling", "Effective grip")):
+                values = grip[key]
+                entries.append(f"{label}  " + (" / ".join(f"{val:.3f}" for val in values)
+                                                if values else "Unavailable"))
+            self.values.set("\n".join(entries))
+        self.root.after(150, self.drain)
+
+    def set_temperature(self):
+        self.requests.put(("temperature", {"value": self.temperature.get()}))
+
+    def close(self):
+        self.requests.put(("exit", {}))
+        self.root.destroy()
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--status", action="store_true", help="Show live weather and grip")
+    args = parser.parse_args()
     root = tk.Tk()
-    WeatherPanel(root)
+    (WeatherStatusPanel if args.status else WeatherPanel)(root)
     root.mainloop()
 
 

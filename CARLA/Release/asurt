@@ -37,6 +37,7 @@ fi
 export PYTHONPATH="${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu:$PYTHONPATH"
 action="${1:-start}"
 shift || true
+if [[ "$action" == tools ]]; then action=manager; fi
 launch="$root/Simulation/CARLA/Launchers"
 if [[ "$action" == exec ]]; then
     exec "$@"
@@ -84,6 +85,12 @@ elif [[ "$action" == start-wslg ]]; then
 elif [[ "$action" == start-novnc ]]; then
     action=start
     profile=novnc
+elif [[ "$action" == open-map-native ]]; then
+    profile="$ASURT_PROFILE"
+    action=open-map
+elif [[ "$action" == open-map-wslg || "$action" == open-map-novnc ]]; then
+    profile="${action#open-map-}"
+    action=open-map
 elif [[ "$action" == novnc-viewer ]]; then
     action=viewer
     profile=novnc

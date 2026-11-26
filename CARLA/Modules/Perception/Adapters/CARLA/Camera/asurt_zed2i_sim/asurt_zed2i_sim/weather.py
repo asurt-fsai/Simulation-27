@@ -1,13 +1,11 @@
-"""Approximate sensor-side weather response layered on CARLA's rendered weather.
-
-Engine rendering supplies scene lighting/rain/fog. These image-domain effects
-approximate additional physical-lens artifacts (wet glass, veiling flare,
-electronic noise). They are not a validated physical ZED 2i sensor model.
-"""
+"""Depth-based visibility and approximate ZED lens effects over CARLA RGB."""
 from math import cos, radians, sin, tan
 
 import cv2
 import numpy as np
+
+
+MIN_HAZE = 0.05
 
 
 def _get(weather, key, default=0.0):
@@ -18,6 +16,106 @@ def _get(weather, key, default=0.0):
 
 def _wrap_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
+
+
+def needs_scene_depth(weather):
+    return (max(_get(weather, "fog_density"), _get(weather, "dust_storm")) >= 100 * MIN_HAZE
+            or road_wetness(weather) >= 0.10)
+
+
+def road_wetness(weather):
+    return float(np.clip(max(_get(weather, "wetness"), _get(weather, "precipitation_deposits"),
+                             0.65 * _get(weather, "precipitation")) / 100.0, 0.0, 1.0))
+
+
+def decode_scene_depth(image):
+    bgra = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)
+    depth = bgra[:, :, 0].astype(np.float32) * 65536.0
+    depth += bgra[:, :, 1].astype(np.float32) * 256.0
+    depth += bgra[:, :, 2]
+    return depth * (1000.0 / 16777215.0)
+
+
+def camera_ground_plane(pose, ground_z):
+    forward = pose.get_forward_vector()
+    right = pose.get_right_vector()
+    up = pose.get_up_vector()
+    return (pose.location.z - ground_z, forward.z, right.z, up.z,
+            pose.location.x, pose.location.y, forward.x, forward.y, right.x, right.y)
+
+
+def attenuate(image, distance, extinction, airlight):
+    transmission = np.exp(-extinction * distance)[..., None]
+    image *= transmission
+    image += np.asarray(airlight, dtype=np.float32) * (1.0 - transmission)
+
+
+def shade_lens_droplets(image, rain, wind, scale, seed, frame):
+    height, width = image.shape[:2]
+    rng = np.random.default_rng(seed + frame // 90)
+    age = (frame % 90) / 90.0
+    for _ in range(min(34, int(rain * scale * 42))):
+        radius = int(rng.integers(3, max(5, min(width, height) // 29)))
+        drift = float(rng.uniform(-0.24, 0.24)) * wind
+        cx = int(rng.integers(0, width) + age * radius * drift * 4.0)
+        cy = int(rng.integers(0, height) + age * radius * rng.uniform(0.15, 1.15))
+        length = radius * rng.uniform(1.1, 2.1 + wind)
+        x0, x1 = max(0, cx - 2 * radius), min(width, cx + 2 * radius + 1)
+        y0, y1 = max(0, cy - int(length) - 2), min(height, cy + int(length) + 3)
+        if x0 >= x1 or y0 >= y1:
+            continue
+        y, x = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        v = (y - cy) / length
+        u = ((x - cx) / radius - drift * v) / (1.0 + 0.23 * v)
+        distance = u * u + (v + 0.13 * u * u) ** 2
+        body = np.clip((1.0 - distance) * 2.6, 0.0, 1.0)
+        # The curved bead refracts its background. The highlight occupies one
+        # side of the drop and the opposite edge absorbs a little contrast.
+        bend = 0.32 * body
+        refracted = cv2.remap(image, x + bend * (x - cx), y + bend * (y - cy),
+                              cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+        rim = np.clip(1.0 - np.abs(distance - 0.80) * 6.0, 0.0, 1.0)
+        highlight = 37.0 * rim * np.clip(-0.55 * u - 0.78 * v, 0.0, 1.0)
+        shadow = 27.0 * rim * np.clip(0.50 * u + 0.75 * v, 0.0, 1.0)
+        patch = image[y0:y1, x0:x1]
+        patch += (refracted - patch) * (0.82 * body[..., None])
+        patch += (highlight - shadow)[..., None]
+
+
+def shade_wet_road(image, depth, camera_plane, horizontal_fov_deg, wetness, deposits):
+    """Darken ground shading and reflect sky light at grazing angles."""
+    rows, cols = depth.shape
+    focal_length = cols / (2.0 * tan(radians(horizontal_fov_deg) / 2.0))
+    right = (np.arange(cols, dtype=np.float32)[None, :] + 0.5 - cols / 2) / focal_length
+    up = (rows / 2 - np.arange(rows, dtype=np.float32)[:, None] - 0.5) / focal_length
+    camera_height, forward_z, right_z, up_z, x, y, fx, fy, rx, ry = camera_plane
+    vertical = forward_z + right * right_z + up * up_z
+    elevation = camera_height + depth * vertical
+    tolerance = 0.10 + np.minimum(depth, 35.0) * 0.010
+    ground = np.clip(1.0 - np.abs(elevation) / tolerance, 0.0, 1.0)
+    ground *= (depth > 1.0) & (depth < 85.0)
+    incidence = np.clip(-vertical / np.sqrt(1.0 + right**2 + up**2), 0.0, 1.0)
+    fresnel = (1.0 - incidence)**5
+    world_x = x + depth * (fx + right * rx)
+    world_y = y + depth * (fy + right * ry)
+    patches = np.sin(0.46 * world_x + 0.24 * world_y) + 0.5 * np.sin(1.13 * world_y - 0.37 * world_x)
+    puddles = np.clip((patches + deposits - 0.5) * 0.8, 0.0, 1.0) * deposits
+    h, w = image.shape[:2]
+    if (cols, rows) != (w, h):
+        ground = cv2.resize(ground, (w, h), interpolation=cv2.INTER_LINEAR)
+        fresnel = cv2.resize(fresnel, (w, h), interpolation=cv2.INTER_LINEAR)
+        puddles = cv2.resize(puddles, (w, h), interpolation=cv2.INTER_LINEAR)
+    # Reject saturated cone paint and grass, and bright bodywork, at RGB pixel
+    # resolution. Neither the road mask nor its edge is blurred across objects.
+    blue, green, red = cv2.split(image)
+    chroma = np.maximum(np.maximum(blue, green), red) - np.minimum(np.minimum(blue, green), red)
+    ground *= np.clip((64.0 - chroma) / 30.0, 0.0, 1.0) * np.clip((240.0 - green) / 38.0, 0.0, 1.0)
+    diffuse = (0.37 + 0.10 * puddles) * wetness * ground
+    reflected = (0.08 + 0.48 * puddles) * wetness * ground * fresnel
+    sky = cv2.resize(image[:max(1, h // 5)][::-1], (w, h), interpolation=cv2.INTER_LINEAR)
+    sky = cv2.GaussianBlur(sky, (0, 0), 4.0)
+    image *= (1.0 - diffuse[..., None]) * (1.0 - reflected[..., None])
+    image += sky * reflected[..., None]
 
 
 class WeatherEffects:
@@ -35,7 +133,7 @@ class WeatherEffects:
         self._noise_buffer = None
 
     def process(self, bgr, weather, camera_yaw_deg, camera_pitch_deg, frame, eye,
-                horizontal_fov_deg=110.0):
+                horizontal_fov_deg=110.0, depth_m=None, camera_plane=None):
         """Return an independent image; never mutate raw CARLA frame data."""
         if not self.enabled:
             return bgr.copy()
@@ -44,9 +142,15 @@ class WeatherEffects:
         cloud = np.clip(_get(weather, "cloudiness") / 100.0, 0, 1)
         rain = np.clip(_get(weather, "precipitation") / 100.0, 0, 1)
         fog = np.clip(_get(weather, "fog_density") / 100.0, 0, 1)
+        dust = np.clip(_get(weather, "dust_storm") / 100.0, 0, 1)
         wind = np.clip(_get(weather, "wind_intensity") / 100.0, 0, 1)
         sun_alt = _get(weather, "sun_altitude_angle", -30.0)
         sun_yaw = _get(weather, "sun_azimuth_angle", 0.0)
+
+        wetness = road_wetness(weather)
+        if wetness >= 0.10 and depth_m is not None and camera_plane is not None:
+            deposits = np.clip(_get(weather, "precipitation_deposits") / 100.0, 0.0, 1.0)
+            shade_wet_road(out, depth_m, camera_plane, horizontal_fov_deg, wetness, deposits)
 
         # Extra atmospheric flare is intentionally mild: CARLA already renders
         # sunlight/weather in the scene. Glare is strongest near optical axis.
@@ -74,35 +178,20 @@ class WeatherEffects:
                 out *= (1 - 0.08*strength)
                 out += (12*strength)
 
-        if fog > 0.06:
-            # Fog already exists in rendered image; this adds a sensor-side
-            # reduction in local contrast at high simulated haze densities.
-            amount = min(0.16, fog * 0.20)
-            out *= (1 - amount)
-            out += np.array([196, 201, 207], dtype=np.float32)*amount
+        if max(fog, dust) >= MIN_HAZE:
+            # Bounded fallback while depth warms up or is momentarily late.
+            distance = np.float32(28.0) if depth_m is None else cv2.resize(
+                depth_m, (w, h), interpolation=cv2.INTER_LINEAR)
+            if fog >= MIN_HAZE:
+                start = max(0.0, _get(weather, "fog_distance"))
+                attenuate(out, np.maximum(0.0, distance - start), 0.095 * fog**2,
+                          (196, 201, 207))
+            if dust >= MIN_HAZE:
+                attenuate(out, distance, 0.064 * dust**1.5, (145, 177, 205))
 
-        # Droplets move slowly relative to incoming sensor frames. Left/right
-        # have separate glass and therefore separate droplet patterns.
+        # Each lens has its own droplets, which drift across successive frames.
         if rain > 0.03 and self.droplets_scale:
-            rng = np.random.default_rng(self.seed + 173 * eye + frame // 60)
-            num = int(min(45, rain * self.droplets_scale * 36))
-            if num:
-                mask = np.zeros((h, w), np.uint8)
-                for _ in range(num):
-                    x = int(rng.integers(0, w))
-                    y = int(rng.integers(0, h))
-                    radius = int(rng.integers(2, max(4, min(w,h)//35)))
-                    cv2.ellipse(mask, (x, y),
-                                (radius, max(2, int(radius * (1.1 + wind)))),
-                                0, 0, 360, int(rng.integers(100, 220)), -1)
-                glass_blur = cv2.GaussianBlur(out, (0, 0), sigmaX=max(2.0, min(w, h)/120.0))
-                alpha = (mask.astype(np.float32)/255.0 * 0.9)[:, :, None]
-                out *= (1-alpha)
-                out += glass_blur*alpha
-                # Water scatters light and creates bright halo rims.
-                rim = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT,
-                                        np.ones((3,3), np.uint8)).astype(np.float32)
-                out += rim[:, :, None]*0.18
+            shade_lens_droplets(out, rain, wind, self.droplets_scale, self.seed + 173 * eye, frame)
 
         if self.noise_std > 0:
             darkness = max(0, 0.4 - float(out.mean()) / 255.0)

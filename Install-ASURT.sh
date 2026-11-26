@@ -8,6 +8,7 @@ windows_root=
 root="$HOME/.local/share/asurt"
 maps=ask
 skip_dependencies=false
+with_wsl_runtime=false
 extra=()
 while (($#)); do
     case "$1" in
@@ -21,6 +22,7 @@ while (($#)); do
         --catalog) extra+=("$1" "${2:?}"); shift 2 ;;
         --no-shortcuts|--fixture) extra+=("$1"); shift ;;
         --skip-dependencies) skip_dependencies=true; shift ;;
+        --with-wsl-runtime) with_wsl_runtime=true; shift ;;
         --help) echo "Usage: bash Install-ASURT.sh --repository OWNER/REPO [--maps ask|all|none]"; exit ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
@@ -161,7 +163,7 @@ PY
     if [[ "$platform" == windows ]]; then
         packages+=(vulkan-tools libdrm2 libxcb1 libx11-xcb1 libxcb-dri3-0 libxcb-present0
             libxcb-xfixes0 libxcb-sync1 libxcb-randr0 libxcb-shm0 libxshmfence1 libexpat1 zlib1g libzstd1)
-        if [[ "$branch" == testing ]]; then
+        if [[ "$with_wsl_runtime" == true && -f "$root/.private-viewer" ]]; then
             packages+=(tigervnc-standalone-server novnc websockify x11-utils openbox)
         fi
     fi
@@ -174,7 +176,7 @@ PY
         sudo apt-get install -y "${missing[@]}"
     fi
 fi
-if [[ "$platform" == windows && "$skip_dependencies" == false ]]; then
+if [[ "$platform" == windows && "$with_wsl_runtime" == true && "$skip_dependencies" == false ]]; then
     [[ $(uname -r) == *microsoft-standard* || $(uname -r) == *WSL2* ]] || {
         echo 'The Windows installation must run inside Ubuntu on WSL2.' >&2
         exit 2
@@ -224,8 +226,8 @@ PY
         cat "$temp/dozen-vulkan.log" >&2
         echo 'The Dozen files are installed. WSLg CARLA needs a working Windows GPU driver with WSL GPU support.' >&2
     fi
-    extra+=(--with-wsl-runtime)
 fi
+if [[ "$platform" == windows && "$with_wsl_runtime" == true ]]; then extra+=(--with-wsl-runtime); fi
 [[ -z "$windows_root" ]] || extra+=(--windows-root "$windows_root")
 [[ -z "$manifest" ]] || extra+=(--manifest "$manifest")
 python3 "$temp/asurt_update.py" --metadata "$temp/manifest.json" --repository "$repository" --root "$root" --platform "$platform" --maps "$maps" --branch "$branch" "${extra[@]}"

@@ -9,8 +9,10 @@ from urllib.parse import quote
 
 from jsonschema import Draft7Validator
 
-from runner import OUTPUT, ROOT, TOPICS, cancel_run, get_run, record_bag, run_scenario, simulator_status, track_importer
+from runner import (OUTPUT, ROOT, TOPICS, cancel_run, get_run, record_bag, run_scenario,
+                    set_weather, simulator_status, track_importer, weather_status)
 from track_tools import DEFAULT_RULES, TrackTools
+from weather_control import CONTROLS, PRESETS
 
 
 PROTOCOL = "2025-11-25"
@@ -76,6 +78,14 @@ TOOLS = {
         tool(simulator_status, "List installed maps, the active session, and live module switches, process status, PIDs, "
              "and RAM. Set probe=true to verify world frames, course cones, and ROS publishers and messages.",
              {"probe": {"type": "boolean"}}, read_only=True),
+        tool(weather_status, "Read live weather, road wetness, air, asphalt and estimated tyre temperatures, timed rain remaining, "
+             "fog, dust, and per-wheel configured and rolling effective grip.", read_only=True),
+        tool(set_weather, "Apply a Weather Editor preset, individual fields, or both on the active simulator. "
+             "Use air_temperature_c to set air temperature and rain_duration_s for simulated seconds of rain. "
+             "Set rain_duration_s to 0 to stop rain. Explicit fields override the preset.",
+             {"preset": choice(*PRESETS),
+              "fields": {"type": "object", "additionalProperties": False,
+                         "properties": {key: number(low, high) for key, _, low, high, _, _ in CONTROLS}}}),
         tool(run_scenario,
              "Queue a dedicated simulator run and ROS 2 recording. Only starts when no simulator is active. "
              "Select reference, stationary observe, or Stanley with a goal [x, y, yaw_deg] in the exported track frame. "

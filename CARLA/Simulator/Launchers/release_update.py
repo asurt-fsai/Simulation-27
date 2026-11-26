@@ -15,6 +15,8 @@ from threading import Thread
 from urllib.parse import quote
 from urllib.request import urlopen
 
+from windows_interop import powershell_exe
+
 
 RECEIPT = "release-installation.json"
 CHANNEL_SELECTION = "update-channel.json"
@@ -184,10 +186,12 @@ def check_updates(state, *, branch=None, strict=False):
     return (latest, maps) if latest or maps else None
 
 
-def terminal_command(root, platform, branch=None):
+def terminal_command(root, platform, branch=None, *, add_wslg=False):
     command = ["/bin/bash", str(root / "bin/asurt"), "exec", "/usr/bin/python3", str(Path(__file__).resolve())]
     if branch:
         command.extend(("--channel", branch))
+    if add_wslg:
+        command.append("--add-wslg")
     if platform == "windows":
         if not (root / "bin/Install-ASURT.ps1").is_file():
             raise RuntimeError("The bundled Windows installer is missing.")
@@ -199,7 +203,7 @@ def terminal_command(root, platform, branch=None):
         script = ("$ErrorActionPreference='Stop'; Start-Process -FilePath wsl.exe "
                   f"-ArgumentList {quoted} -WindowStyle Normal")
         encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+        return [powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
     if not (root / "bin/Install-ASURT.sh").is_file():
         raise RuntimeError("The bundled Ubuntu installer is missing.")
     terminal = shutil.which("gnome-terminal")
@@ -211,8 +215,8 @@ def terminal_command(root, platform, branch=None):
     raise RuntimeError("No desktop terminal is available to run the ASURT installer.")
 
 
-def launch_terminal(root, platform, branch=None):
-    command = terminal_command(root, platform, branch)
+def launch_terminal(root, platform, branch=None, *, add_wslg=False):
+    command = terminal_command(root, platform, branch, add_wslg=add_wslg)
     if platform == "windows" or Path(command[0]).name == "gnome-terminal":
         # These launchers return after handing off to the interactive terminal.
         subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=10)
@@ -355,17 +359,19 @@ def run_manager(command):
         return manager.wait()
 
 
-def installer_command(root, state, installed, branch=None):
+def installer_command(root, state, installed, branch=None, *, add_wslg=False):
     repo = installed["repository"]
     branch = branch or selected_branch(state, installed)
     catalog = installed.get("catalog")
     if installed["platform"] == "windows":
         def native_path(path):
             return subprocess.check_output(["wslpath", "-w", str(path)], text=True, timeout=8).strip()
-        command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        command = [powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                    native_path(root / "bin/Install-ASURT.ps1"), "-Distribution",
                    os.environ.get("WSL_DISTRO_NAME", "Ubuntu-22.04"), "-Repository", repo,
                    "-Branch", branch, "-Maps", "all"]
+        wslg = root / "Simulation/CARLA/Runtime/Active/asurt-linux-flat"
+        command.append("-WithWslg" if add_wslg or wslg.is_dir() else "-NativeOnly")
         if catalog:
             command.extend(("-Catalog", catalog if catalog.startswith("https://") else native_path(catalog)))
         return command
@@ -386,9 +392,16 @@ def main():
         if not installed:
             raise RuntimeError("ASURT release information is missing. Run your installer once.")
         branch = None
-        if sys.argv[1:2] == ["--channel"] and len(sys.argv) == 3 and sys.argv[2] in CHANNELS:
-            branch = sys.argv[2]
-        command = installer_command(root, state, installed, branch)
+        args = sys.argv[1:]
+        add_wslg = "--add-wslg" in args
+        plain = [arg for arg in args if arg != "--add-wslg"]
+        if plain:
+            if len(plain) != 2 or plain[0] != "--channel" or plain[1] not in CHANNELS:
+                raise ValueError("Invalid installer channel request.")
+            branch = plain[1]
+        if add_wslg and installed["platform"] != "windows":
+            raise ValueError("WSLg is available on Windows.")
+        command = installer_command(root, state, installed, branch, add_wslg=add_wslg)
         print("Closing the ASURT simulator and tools before updating…", flush=True)
         stop_for_update()
         result = subprocess.call(command)

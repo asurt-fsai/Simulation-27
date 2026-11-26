@@ -25,6 +25,7 @@ from tf2_ros import StaticTransformBroadcaster
 from .clock_alignment import ClockOffsetCalibrator
 from .scan import decode_carla_lidar, RevolutionAccumulator
 from .ultra_puck import beam_banks, rotate_to_sensor
+from .weather import WeatherReturns
 
 
 def load_carla():
@@ -137,6 +138,7 @@ class VelodyneSimNode(Node):
         self.scans_published = 0
         self.scans_dropped = 0
         self.points_last = 0
+        self.weather_returns = WeatherReturns()
         self.last_report = time.monotonic()
         self.last_report_scans = 0
         self.last_report_segments = 0
@@ -150,6 +152,8 @@ class VelodyneSimNode(Node):
             self.cleanup()
             raise
         self.create_timer(0.025, self.publish_queue)
+        self.refresh_weather()
+        self.create_timer(0.75, self.refresh_weather)
         self.create_timer(4.0, self.report)
         self.get_logger().info(
             f"Velodyne {self.p['model']} source: existing hero={self.hero.id}, "
@@ -289,6 +293,12 @@ class VelodyneSimNode(Node):
         except Exception as exc:
             self.get_logger().warning(f"Velodyne callback skipped segment: {exc}")
 
+    def refresh_weather(self):
+        try:
+            self.weather_returns = WeatherReturns.from_world(self.world.get_weather())
+        except RuntimeError as exc:
+            self.get_logger().warning(f"LiDAR weather query failed: {exc}", throttle_duration_sec=10.0)
+
     def publish_queue(self):
         # Don't substitute a /clock receive time for an actual scan capture
         # timestamp while initial epoch alignment is still in progress.
@@ -301,6 +311,7 @@ class VelodyneSimNode(Node):
             self.scans_dropped += len(self.queue)
             self.queue.clear()
         stamp = ros_stamp(scan_stamp + self.clock_offset)
+        cloud_points = self.weather_returns.apply(cloud_points, scan_stamp)
         self.publisher.publish(to_cloud(cloud_points, stamp, self.p["frame_id"]))
         self.scans_published += 1
         self.points_last = len(cloud_points)

@@ -32,6 +32,15 @@ def copy_changed_files(reference, overlay):
         cwd=builder.REPOSITORY, text=True).split("\0")
     for status, name in zip(changes[::2], changes[1::2]):
         path = PurePosixPath(name)
+        if path.parts == builder.DRIVING_SOURCE.parts and status in ("A", "M"):
+            builder.copy_driving_window(overlay)
+            continue
+        if (len(path.parts) == 9 and path.parts[:5] == ("CARLA", "Modules", "Perception", "Adapters", "CARLA")
+                and path.parts[6] == path.parts[7]
+                and builder.PYTHON_ADAPTERS.get(path.parts[6]) == path.parts[5]
+                and path.name in ("node.py", "weather.py") and status in ("A", "M")):
+            builder.copy_python_adapter_file(path.parts[6], path.name, overlay)
+            continue
         if path.parts[:2] == ("CARLA", "Modules") or path.parts[:3] == ("CARLA", "Simulator", "Bridge"):
             raise ValueError(f"{name} requires updated compiled ROS overlays from a full release build.")
         if path.parts[:2] in (("CARLA", "Tools"), ("CARLA", "Assets")):
@@ -39,6 +48,8 @@ def copy_changed_files(reference, overlay):
                 raise ValueError(f"Removing {name} from an installed stack requires a full stack build.")
             target = ("tools" if path.parts[1] == "Tools" else "Assets", *path.parts[2:])
             builder.copy(builder.REPOSITORY / path, overlay.joinpath(*target))
+            if path.parts[:3] == ("CARLA", "Tools", "MCP"):
+                builder.copy(builder.REPOSITORY / path, overlay.joinpath("libexec/asurt-mcp", *path.parts[3:]))
 
 
 def main():
@@ -82,7 +93,8 @@ def main():
                 maps + "FlatAsphalt.umap", maps + "FlatAsphalt.uexp", maps + "OpenDrive/FlatAsphalt.xodr"))
     manifest.update(tag=args.tag, channel=args.branch,
                     updater=builder.item(args.output / "asurt_update.py"),
-                    linux_installer=builder.item(args.output / "Install-ASURT.sh"))
+                    linux_installer=builder.item(args.output / "Install-ASURT.sh"),
+                    ubuntu_packages=(builder.HERE / "ubuntu-packages.txt").read_text().splitlines())
     patch = args.output / manifest["stack_patch"]["file"]
     with tempfile.TemporaryDirectory() as temporary:
         overlay = Path(temporary) / "overlay"
@@ -99,7 +111,9 @@ def main():
     launch = "Simulation/CARLA/Launchers"
     manifest["stack_patch"]["startup_files"] = startup_checks(
         patch, ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
-                f"{launch}/map_packs.py", f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py"))
+                f"{launch}/map_packs.py", f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py",
+                f"{launch}/weather_grip.py", f"{launch}/road_weather.py", f"{launch}/windows_interop.py",
+                f"{launch}/windows-server.ps1"))
     (args.output / "asurt-release.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

@@ -5,9 +5,12 @@ param(
     [string]$Branch='main',
     [string]$Distribution='Ubuntu-22.04',
     [ValidateSet('ask','all','none')][string]$Maps='ask',
+    [switch]$WithWslg,
+    [switch]$NativeOnly,
     [switch]$SkipFirewall
 )
 $ErrorActionPreference='Stop'
+if ($WithWslg -and $NativeOnly) { throw 'Choose either -WithWslg or -NativeOnly.' }
 if (!$Manifest -and $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
     throw 'Supply the GitHub owner and project with -Repository OWNER/REPO.'
 }
@@ -120,7 +123,26 @@ $working=Convert-AsurtPath $root
 $entry=Convert-AsurtPath $script
 $source=$Manifest
 if ($local) { $source=Convert-AsurtPath $Manifest }
+if (!$WithWslg -and !$NativeOnly) {
+    & $wslPath -d $Distribution --exec /usr/bin/test -d "$linuxHome/.local/share/asurt/current/Simulation/CARLA/Runtime/Active/asurt-linux-flat"
+    if ($LASTEXITCODE -eq 0) {
+        $WithWslg=$true
+    } elseif (![Console]::IsInputRedirected) {
+        $choice=Read-Host 'Also install the optional WSLg CARLA renderer? [y/N]'
+        $WithWslg=$choice.Trim() -in @('y','yes')
+    }
+}
+if ($Maps -eq 'ask') {
+    if ([Console]::IsInputRedirected) {
+        Write-Host 'Use -Maps all to install Silverstone Split in an unattended run.'
+        $Maps='none'
+    } else {
+        $reply=Read-Host 'Download and install Silverstone Split? [y/N]'
+        $Maps=if ($reply.Trim() -in @('y','yes')) { 'all' } else { 'none' }
+    }
+}
 $installArgs=@('--platform','windows','--windows-root',$working,'--maps',$Maps,'--branch',$Branch,'--no-shortcuts')
+if ($WithWslg) { $installArgs+='--with-wsl-runtime' }
 if ($source) { $installArgs+=@('--manifest',$source) }
 if ($Repository) { $installArgs+=@('--repository',$Repository) }
 if ($Catalog) {
@@ -136,9 +158,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'ASURT installation did not finish. Rerun it to continue.' }
 } finally { $env:WSLENV=$oldWslEnv }
 
-if (!$SkipFirewall) {
-    $addr=(((& $wslPath -d $Distribution -- hostname -I) | Out-String).Trim() -split '\s+') |
-        Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' } | Select-Object -First 1
+$networkMode=Invoke-AsurtWsl -d $Distribution -- wslinfo --networking-mode
+if (!$SkipFirewall -and $networkMode -ne 'mirrored') {
+    $interface=Invoke-AsurtWsl -d $Distribution -- ip -4 -o addr show dev eth0 scope global
+    $addr=if ($interface -match '\binet ([0-9.]+)/[0-9]+\b') { $Matches[1] }
     $runtime=Invoke-AsurtWsl -d $Distribution -- cat "$linuxHome/.local/share/asurt/current/Simulation/CARLA/Runtime/Active/asurt-win64-flat.txt"
     $runtimeParent=Join-Path $root 'runtimes'
     if (!$runtime -or (Split-Path -Parent $runtime) -ine $runtimeParent -or (Split-Path -Leaf $runtime) -notmatch '^[a-f0-9]{64}$') {
@@ -154,21 +177,21 @@ if (!$SkipFirewall) {
             $escapedGame=$game.Replace("'","''")
             $command=('$ErrorActionPreference="Stop"; $old=Get-NetFirewallRule -Name ''{0}'' -ErrorAction SilentlyContinue; if ($old) {{ $old | Remove-NetFirewallRule }}; New-NetFirewallRule -Name ''{0}'' -DisplayName ''ASURT CARLA from WSL'' -Direction Inbound -Action Allow -Program ''{1}'' -RemoteAddress ''{2}'' -Protocol TCP -LocalPort 2100,2101,2102 | Out-Null' -f $rule,$escapedGame,$addr)
             $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-            $firewall=Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-            if ($firewall.ExitCode -ne 0) { throw 'Could not configure Windows CARLA access from WSL. Rerun the installer.' }
+            try {
+                $firewall=Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                if ($firewall.ExitCode -ne 0) { throw "Firewall setup returned $($firewall.ExitCode)." }
+            } catch {
+                Write-Warning 'Shortcuts will be installed. Rerun the installer and approve the firewall prompt if Native Windows cannot connect.'
+            }
         }
     }
 }
 
 $shortcutActions=[ordered]@{
-    'ASURT FlatAsphalt'='start'
-    'ASURT FlatAsphalt WSLg'='start-wslg'
-    'ASURT FlatAsphalt noVNC'='start-novnc'
-    'ASURT noVNC Viewer'='novnc-viewer'
+    'ASURT FlatAsphalt'='open-map-native --map flat-asphalt'
     'ASURT Stop Simulator'='stop'
     'ASURT CARLA System Manager'='manager'
     'ASURT CARLA Map Packs'='map-packs'
-    'ASURT CARLA Tools'='tools'
     'ASURT Cone Track Importer'='track'
     'ASURT Weather Editor'='weather'
     'ASURT Trackdraw'='trackdraw'
@@ -180,15 +203,46 @@ $shortcutActions=[ordered]@{
     'ASURT Control RViz'='control-rviz'
     'ASURT Track Control RViz'='track-control-rviz'
 }
+if ($WithWslg) { $shortcutActions['ASURT FlatAsphalt WSLg']='open-map-wslg --map flat-asphalt' }
+$privateViewer=$false
+if ($WithWslg) {
+    & $wslPath -d $Distribution --exec /usr/bin/test -f "$linuxHome/.local/share/asurt/.private-viewer"
+    $privateViewer=$LASTEXITCODE -eq 0
+    if ($privateViewer) {
+        $shortcutActions['ASURT FlatAsphalt noVNC']='open-map-novnc --map flat-asphalt'
+        $shortcutActions['ASURT noVNC Viewer']='novnc-viewer'
+    }
+}
+& $wslPath -d $Distribution --exec /usr/bin/test -s "$linuxHome/.local/share/asurt/state/maps/silverstone-section.zip"
+if ($LASTEXITCODE -eq 0) {
+    $shortcutActions['ASURT Silverstone Split']='open-map-native --map silverstone-section'
+    if ($WithWslg) { $shortcutActions['ASURT Silverstone Split WSLg']='open-map-wslg --map silverstone-section' }
+    if ($privateViewer) { $shortcutActions['ASURT Silverstone Split noVNC']='open-map-novnc --map silverstone-section' }
+}
 $native=New-Object -ComObject WScript.Shell
 foreach ($directory in @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('Programs'))) {
     $folder=Join-Path $directory 'ASURT CARLA'
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    foreach ($obsolete in @('ASURT CARLA Tools','ASURT FlatAsphalt noVNC','ASURT noVNC Viewer',
+                           'ASURT Silverstone Split noVNC','ASURT FlatAsphalt WSLg','ASURT Silverstone Split WSLg',
+                           'ASURT Silverstone Split')) {
+        if (!$shortcutActions.Contains($obsolete)) {
+            $old=Join-Path $folder "$obsolete.lnk"
+            if (Test-Path -LiteralPath $old -PathType Leaf) { Remove-Item -LiteralPath $old -Force }
+        }
+    }
     foreach ($name in $shortcutActions.Keys) {
         $link=$native.CreateShortcut((Join-Path $folder "$name.lnk"))
         $link.TargetPath=Join-Path $env:SystemRoot 'System32/wsl.exe'
         $link.Arguments='-d {0} -- /bin/bash "{1}/.local/share/asurt/current/bin/asurt" {2}' -f $Distribution,$linuxHome,$shortcutActions[$name]
-        $icon=Join-Path $root "shortcut-icons/$($shortcutActions[$name]).ico"
+        $iconKey=switch -Wildcard ($name) {
+            'ASURT FlatAsphalt' { 'start' }
+            'ASURT FlatAsphalt WSLg' { 'start-wslg' }
+            'ASURT FlatAsphalt noVNC' { 'start-novnc' }
+            'ASURT Silverstone Split*' { 'silverstone-split' }
+            default { $shortcutActions[$name] }
+        }
+        $icon=Join-Path $root "shortcut-icons/$iconKey.ico"
         if (Test-Path -LiteralPath $icon -PathType Leaf) {
             $link.IconLocation="$icon,0"
         }

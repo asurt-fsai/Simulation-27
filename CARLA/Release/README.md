@@ -4,7 +4,7 @@ The installer downloads the cooked simulator, the compatible CARLA client, the R
 
 ## Install
 
-Use Ubuntu 22.04 x86-64 with a working desktop and Vulkan driver, or Windows x64. The Windows installer provisions WSL2 and Ubuntu 22.04 when needed and checks the distro's version and architecture. A first Windows setup can require a reboot and creation of the Ubuntu user. It installs native Windows CARLA and the WSLg runtime. The isolated Dozen driver is used by WSLg CARLA. Windows firewall authorization is restricted to the native executable, its three RPC/streaming ports, and the current WSL address. If that address changes and connection fails, rerun the installer.
+Use Ubuntu 22.04 x86-64 with a working desktop and Vulkan driver, or Windows x64. The Windows installer provisions WSL2 and Ubuntu 22.04 for the ROS bridge and tools. A first Windows setup can require a reboot and creation of the Ubuntu user. Native Windows is the default simulator. Select the optional WSLg renderer in the installer or add it from System Manager later. WSLg CARLA uses the isolated Dozen driver. On WSL NAT networks, firewall authorization is scoped to the native executable, its three RPC and streaming ports, and the current WSL address. If that address changes and connection fails, rerun the installer.
 
 ```bash
 bash Install-ASURT.sh
@@ -59,7 +59,7 @@ For example:
 }
 ```
 
-Tool keys include `track`, `weather`, `trackdraw`, `manager`, `map-packs`, `ros-bags`, `tools`, `rviz`,
+Tool keys include `track`, `weather`, `trackdraw`, `manager`, `map-packs`, `ros-bags`, `rviz`,
 `zed-rviz`, and `planning-rviz`. Reopen the tool after saving a path change.
 
 - Edit a tool under `tools/` or in `Simulation/CARLA/Launchers/`. Reopen the tool to load the edits.
@@ -98,7 +98,7 @@ Each simulator runtime and the module/tool stack has a separate SHA-256 in `asur
 A small stack update can pin the previous stack asset by release tag and supply a verified
 `stack_patch` archive. The installer applies it to a new stack before activating the version.
 
-Push to `testing` to publish a numbered `testing-N` prerelease from the current released CARLA and ROS binaries. The workflow packages launcher, tool, and editable asset changes. Changes that need rebuilt ROS binaries require a full stack build. The Testing and Release catalogs reference the same published Silverstone Split ZIP. Merging the source into `main` leaves production on the Release channel until a stable release is published.
+Push to `testing` to publish a numbered `testing-N` prerelease from the current released CARLA and ROS binaries. The workflow packages launcher, tool, and editable asset changes, including Python changes to the driving window and the bundled ZED and Velodyne adapters. Changes that need rebuilt ROS binaries require a full stack build. The Testing and Release catalogs reference the same published Silverstone Split ZIP. Merging the source into `main` leaves production on the Release channel until a stable release is published.
 Use `--wsl-graphics` when assembling a release that includes the pinned Mesa Dozen WSL
 archive. Publish it alongside the manifest, or reference its existing production
 release tag in `wsl_graphics`.

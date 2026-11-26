@@ -68,15 +68,19 @@ from carla import ColorConverter as cc
 
 import argparse
 import collections
+from contextlib import suppress
 import datetime
+import json
 import logging
 import math
 import os
+from pathlib import Path
 import random
 import re
 import sys
 import weakref
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -263,9 +267,8 @@ class World(object):
 
         # Attach mode: reuse an already-spawned actor (role_name match) instead of spawning.
         if self._attach:
-            import time
             player = None
-            wait_start = time.time()
+            wait_start = time.monotonic()
             last_log = 0.0
             print("Waiting for actor with role_name='%s' to spawn..." % self.actor_role_name)
             while player is None:
@@ -293,7 +296,9 @@ class World(object):
                 if player is not None:
                     break
 
-                elapsed = time.time() - wait_start
+                elapsed = time.monotonic() - wait_start
+                if elapsed >= 30.0:
+                    raise RuntimeError(f"Could not attach the driving window to {self.actor_role_name!r} within 30 seconds.")
                 if elapsed - last_log >= 5.0:
                     print("Still waiting for ego vehicle (%.0fs elapsed)..." % elapsed)
                     last_log = elapsed
@@ -395,6 +400,7 @@ class World(object):
             pass
 
     def tick(self, clock):
+        self.camera_manager.refresh_weather()
         self.hud.tick(self, clock)
 
     def render(self, display):
@@ -402,11 +408,13 @@ class World(object):
         self.hud.render(display)
 
     def destroy_sensors(self):
+        self.camera_manager.stop_weather_depth()
         self.camera_manager.sensor.destroy()
         self.camera_manager.sensor = None
         self.camera_manager.index = None
 
     def destroy(self):
+        self.camera_manager.stop_weather_depth()
         sensors = [
             self.camera_manager.sensor,
             self.collision_sensor.sensor,
@@ -830,6 +838,9 @@ class HUD(object):
         self._detail_player_id = None
         self._details_next_ms = 0
         self._mu_line = 'Mu:      unavailable'
+        road_weather = os.environ.get('ASURT_ROAD_WEATHER_DIR')
+        self._road_weather = Path(road_weather) / 'road-weather-status.json' if road_weather else None
+        self._temperature_line = ''
         self._vehicles = []
 
         self._show_ackermann_info = False
@@ -860,6 +871,12 @@ class HUD(object):
                 self._mu_line = 'Mu:      ' + ' '.join('%4.2f' % value for value in tire_friction)
             except RuntimeError:
                 self._mu_line = 'Mu:      unavailable'
+            if self._road_weather is not None:
+                try:
+                    road = json.loads(self._road_weather.read_text())
+                    self._temperature_line = f"Track: {road['asphalt_temperature_c']:.0f}°C  Tyres: {road['tire_temperature_c']:.0f}°C"
+                except (OSError, ValueError, KeyError):
+                    self._temperature_line = 'Track temperature unavailable'
             self._vehicles = world.world.get_actors().filter('vehicle.*')
         compass = world.imu_sensor.compass
         heading = 'N' if compass > 270.5 or compass < 89.5 else ''
@@ -878,7 +895,7 @@ class HUD(object):
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
             'Map:     % 20s' % world.map.name.split('/')[-1],
             'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
-            '',
+            self._temperature_line,
             'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
             self._mu_line,
             u'Compass:% 17.0f\N{DEGREE SIGN} % 2s' % (compass, heading),
@@ -1193,6 +1210,16 @@ class CameraManager(object):
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
+        self._weather = None
+        self._weather_next = 0.0
+        self._depth = None
+        self._depth_frame = None
+        self._ground_z = 0.0
+        self._effects = None
+        if os.environ.get('ASURT_ROAD_WEATHER_DIR'):
+            from asurt_zed2i_sim import weather as camera_weather
+            self._camera_weather = camera_weather
+            self._effects = camera_weather.WeatherEffects(glare_scale=0.0, noise_std=0.0)
         # Hz the display camera renders at; <=0 means render every world tick.
         self._render_rate = render_rate
         bound_x = 0.5 + self._parent.bounding_box.extent.x
@@ -1253,6 +1280,7 @@ class CameraManager(object):
         needs_respawn = True if self.index is None else \
             (force_respawn or (self.sensors[index][2] != self.sensors[self.index][2]))
         if needs_respawn:
+            self.stop_weather_depth()
             if self.sensor is not None:
                 self.sensor.destroy()
                 self.surface = None
@@ -1264,7 +1292,7 @@ class CameraManager(object):
             # We need to pass the lambda a weak reference to self to avoid
             # circular reference.
             weak_self = weakref.ref(self)
-            self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+            self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image, index))
         if notify:
             self.hud.notification(self.sensors[index][2])
         self.index = index
@@ -1280,15 +1308,64 @@ class CameraManager(object):
         if self.surface is not None:
             display.blit(self.surface, (0, 0))
 
+    def refresh_weather(self):
+        now = time.monotonic()
+        if self._effects is None or self.sensor is None or now < self._weather_next:
+            return
+        self._weather_next = now + 1.0
+        world = self._parent.get_world()
+        try:
+            self._weather = world.get_weather()
+            if not self._camera_weather.needs_scene_depth(self._weather):
+                self.stop_weather_depth()
+                return
+            self._ground_z = self._parent.get_location().z
+            if self._depth is None:
+                blueprint = world.get_blueprint_library().find('sensor.camera.depth')
+                for name in ('image_size_x', 'image_size_y', 'fov', 'sensor_tick'):
+                    blueprint.set_attribute(name, self.sensor.attributes[name])
+                blueprint.set_attribute('role_name', 'asurt_driving_depth')
+                transform, attachment = self._camera_transforms[self.transform_index]
+                self._depth = world.spawn_actor(blueprint, transform, attach_to=self._parent,
+                                                attachment_type=attachment)
+                depth_id = self._depth.id
+                self._depth.listen(lambda image: self.on_weather_depth(depth_id, image))
+        except RuntimeError as exc:
+            logging.warning('Driving camera weather update failed: %s', exc)
+            self.stop_weather_depth()
+
+    def on_weather_depth(self, depth_id, image):
+        depth = self._camera_weather.decode_scene_depth(image)
+        plane = self._camera_weather.camera_ground_plane(image.transform, self._ground_z)
+        if self._depth is not None and self._depth.id == depth_id:
+            self._depth_frame = image.timestamp, depth, plane
+
+    def stop_weather_depth(self):
+        actor, self._depth = self._depth, None
+        self._depth_frame = None
+        if actor is not None:
+            with suppress(RuntimeError):
+                actor.stop()
+                actor.destroy()
+
     @staticmethod
-    def _parse_image(weak_self, image):
+    def _parse_image(weak_self, image, index):
         self = weak_self()
         if not self:
             return
-        image.convert(self.sensors[self.index][1])
+        image.convert(self.sensors[index][1])
         array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
         array = np.reshape(array, (image.height, image.width, 4))
         array = array[:, :, :3]
+        weather = self._weather
+        depth_frame = self._depth_frame
+        if weather is not None and (weather.precipitation > 3 or self._camera_weather.needs_scene_depth(weather)):
+            depth, plane = None, None
+            if depth_frame is not None and abs(depth_frame[0] - image.timestamp) <= 0.12:
+                _, depth, plane = depth_frame
+            pose = image.transform.rotation
+            array = self._effects.process(array, weather, pose.yaw, pose.pitch, image.frame, 2,
+                                          float(self.sensors[index][-1].get_attribute('fov').as_float()), depth, plane)
         array = array[:, :, ::-1]
         self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
         if self.recording:
@@ -1308,7 +1385,7 @@ def game_loop(args):
 
     try:
         client = carla.Client(args.host, args.port)
-        client.set_timeout(2000.0)
+        client.set_timeout(15.0)
         # client.load_world('Aramco_Map')
         sim_world = client.get_world()
         if args.sync:
@@ -1331,6 +1408,7 @@ def game_loop(args):
             display_flags |= pygame.FULLSCREEN
         display = pygame.display.set_mode(
             (args.width, args.height), display_flags)
+        pygame.display.set_caption("ASURT Driving")
         display.fill((0,0,0))
         pygame.display.flip()
 
@@ -1344,6 +1422,8 @@ def game_loop(args):
             sim_world.wait_for_tick()
 
         clock = pygame.time.Clock()
+        log = os.environ.get('ASURT_SESSION_LOG')
+        first_frame = Path(log) / 'driving-ready' if log else None
         frame_wait = clock.tick
         if os.environ.get('ASURT_CLIENT_BUSY_WAIT', '1') == '1':
             frame_wait = clock.tick_busy_loop
@@ -1356,6 +1436,9 @@ def game_loop(args):
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
+            if first_frame is not None and world.camera_manager.surface is not None:
+                first_frame.touch()
+                first_frame = None
 
     finally:
 

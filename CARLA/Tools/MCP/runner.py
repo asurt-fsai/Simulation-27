@@ -25,10 +25,11 @@ LAUNCHERS = ROOT / "Simulation/CARLA/Launchers"
 MCP_BIN = ROOT / "libexec/asurt-mcp"
 IMPORTER = MCP_BIN / "import_cone_track.py"
 OUTPUT = STATE / "mcp"
-sys.path[:0] = [str(LAUNCHERS), str(ROOT / "tools/RViz")]
+sys.path[:0] = [str(LAUNCHERS), str(ROOT / "tools/RViz"), str(ROOT / "tools/Weather Editor")]
 
 from module_control import CONFIG, definitions, live_states, module_plan, module_sources
 from session import MAP_LABELS, PROFILES, process_start, running_session
+from weather_control import CAMERA_PRESETS, camera_heading, read_status, scene_preset, set_weather_fields
 
 
 CORE = ("/clock", "/tf", "/tf_static", "/odom", "/drive", "/sim/feedback/collision")
@@ -113,6 +114,41 @@ def simulator_status(probe=False):
         from live_probe import probe_carla, probe_ros
         result["health"] = {"carla": probe_carla(active), "ros": probe_ros(active, running)}
     return result
+
+
+def _live_weather_world():
+    import carla
+
+    session = running_session()
+    if not session or session["phase"] != "ready":
+        raise RuntimeError("Start a simulator and wait until it is ready.")
+    client = carla.Client(session["host"], session["port"])
+    client.set_timeout(3.0)
+    world = client.get_world()
+    if world.get_snapshot().frame == 0:
+        world.wait_for_tick(3.0)
+    return session, world
+
+
+def weather_status():
+    session, world = _live_weather_world()
+    return read_status(world, session["map"], session["log"])
+
+
+def set_weather(preset=None, fields=None):
+    if preset is None and not fields:
+        raise ValueError("Choose a Weather Editor preset or provide weather fields.")
+    session, world = _live_weather_world()
+    updates = {}
+    if preset is not None:
+        heading = camera_heading(world) if preset in CAMERA_PRESETS else None
+        updates.update(scene_preset(preset, heading))
+    updates.update(fields or {})
+    current = running_session()
+    if not current or current["state"] != session["state"] or current["phase"] != "ready":
+        raise RuntimeError("The active CARLA session changed. Read weather status and retry.")
+    set_weather_fields(world, updates, session["log"])
+    return read_status(world, session["map"], session["log"])
 
 
 def selected_modules(requested, driver):

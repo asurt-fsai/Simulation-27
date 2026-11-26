@@ -32,7 +32,6 @@ EDITABLE = (
     Path("tools"),
     Path("Assets/Maps"),
     Path("Assets/Props"),
-    Path("Simulation/CARLA/Launchers/tools-launcher.py"),
     Path("Simulation/CARLA/Launchers/map_pack_panel.py"),
     Path("Simulation/CARLA/Launchers/map_packs.py"),
     *(SYSTEMS / group / folder for group in ("SLAM", "PathPlanning", "Control")
@@ -52,7 +51,6 @@ ACTIONS = {
     "ASURT Stop Simulator": "stop",
     "ASURT CARLA System Manager": "manager",
     "ASURT CARLA Map Packs": "map-packs",
-    "ASURT CARLA Tools": "tools",
     "ASURT Cone Track Importer": "track",
     "ASURT Weather Editor": "weather",
     "ASURT Trackdraw": "trackdraw",
@@ -535,8 +533,10 @@ def verify_installation(candidate, settings, cuda_root):
 
 def launcher_matches(installation, stack, *, relocated=True):
     launch = "Simulation/CARLA/Launchers"
-    paths = ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
-             f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py")
+    bridge = "Simulation/CARLA/Bridge/Carla_ASU_Bridge/install/carla_telemetry/lib/python3.10/site-packages/carla_telemetry"
+    paths = ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py", f"{launch}/weather_grip.py",
+             f"{launch}/road_weather.py", f"{launch}/windows_interop.py", f"{launch}/windows-server.ps1",
+             f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py", f"{bridge}/manual_control.py")
     try:
         for name in paths:
             source = stack / name
@@ -607,6 +607,7 @@ def stack_with_patch(base, patch, *, repair=False):
         stage = Path(temporary) / "stack"
         shutil.copytree(base, stage)
         shutil.copytree(patch, stage, dirs_exist_ok=True)
+        (stage / "Simulation/CARLA/Launchers/tools-launcher.py").unlink(missing_ok=True)
         replace_directory(stage, target)
     return target
 
@@ -646,7 +647,7 @@ def update_maps(args, root, runtime, wsl_runtime=None):
         try:
             catalog = read_json(source)
         except URLError as error:
-            if getattr(error, "code", None) == 404 and not args.catalog:
+            if getattr(error, "code", None) == 404 and not args.catalog and args.maps != "all":
                 return
             raise
     if catalog.get("format") != 1:
@@ -662,6 +663,7 @@ def update_maps(args, root, runtime, wsl_runtime=None):
     # Use the installed launcher to recognize registered packs and validate their base.
     sys.path.insert(0, str(root / "current" / "Simulation/CARLA/Launchers"))
     from map_packs import check_base, read_pack, register
+    compatible_count = 0
     for item in catalog["maps"]:
         map_id = item["id"]
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,47}", map_id) or map_id in {"flat-asphalt", "silverstone"}:
@@ -670,6 +672,7 @@ def update_maps(args, root, runtime, wsl_runtime=None):
                     if item["base_sha256"].get(platform) == checksum}
         if not matching:
             continue
+        compatible_count += 1
         pack = registry / (map_id + ".zip")
         replaces = item.get("replaces_sha256", [])
         if not isinstance(replaces, list) or any(not isinstance(value, str) or not SHA.fullmatch(value)
@@ -704,11 +707,15 @@ def update_maps(args, root, runtime, wsl_runtime=None):
             check_base(definition, platform, game)
         register(archive, registry, replaces=replaces)
         print(f'Added {item["label"]}.')
+    if args.maps == "all" and catalog["maps"] and compatible_count == 0:
+        raise ValueError("No map pack in the catalog matches the installed CARLA runtime.")
 
 
 def linux_shortcuts(root):
     applications = Path.home() / ".local/share/applications"
     desktop = Path(subprocess.check_output(["xdg-user-dir", "DESKTOP"], text=True).strip())
+    for folder in (applications, desktop):
+        (folder / "asurt-tools.desktop").unlink(missing_ok=True)
     entries = {
         f"asurt-{action}.desktop": (
             name, f'"{root}/current/bin/asurt" {action}', f"{root}/current/{ICON_ROOT}/{action}.png",
@@ -749,7 +756,7 @@ def linux_shortcuts(root):
 def windows_shortcut_icons(installation, windows_root):
     destination = windows_root / "shortcut-icons"
     destination.mkdir(parents=True, exist_ok=True)
-    for action in (*ACTIONS.values(), "start-wslg", "start-novnc", "novnc-viewer"):
+    for action in (*ACTIONS.values(), "start-wslg", "silverstone-split"):
         icon = {"start-wslg": "wslg", "start-novnc": "novnc", "novnc-viewer": "novnc"}.get(action, action)
         shutil.copyfile(installation / ICON_ROOT / f"{icon}.ico", destination / f"{action}.ico")
 
@@ -871,6 +878,8 @@ def main():
         try:
             update_maps(args, root, runtime, wsl_runtime)
         except (OSError, ValueError, KeyError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
+            if args.maps == "all":
+                raise RuntimeError(f"Base and tools installed. The requested map packs could not be installed: {error}") from error
             print(f"Base and tools installed. Silverstone or another optional map could not be installed: {error}\n"
                   "Rerun the installer with --maps all (Windows: -Maps all) to retry.", file=sys.stderr)
         if args.platform == "linux" and not args.no_shortcuts:

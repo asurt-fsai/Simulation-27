@@ -167,6 +167,8 @@ plugin and click **Restart**.
 | `list_rulebooks`, `read_rulebook` | Find event references and read rule text. |
 | `generate_track` | Build a seeded or manually specified track and validate it. |
 | `simulator_status` | List maps, profiles, live modules and the active session. |
+| `weather_status` | Read live weather, road wetness, air and asphalt temperatures, estimated tyre temperature, and configured and effective tyre grip. |
+| `set_weather` | Apply a Weather Editor preset or update individual fields. Set `air_temperature_c` to control air temperature and `rain_duration_s` to time a shower in simulation seconds. |
 | `run_scenario` | Queue a dedicated simulator run with recording and metrics. |
 | `record_bag` | Record topics from an existing simulator. |
 | `track_importer` | Preview, spawn or clear physical cones, check status, and place the car. |

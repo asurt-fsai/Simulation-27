@@ -29,6 +29,33 @@ For a team planner, add its configured path and status topics after checking the
 graph. In playback, **All recorded topics** can replay `/drive` on the isolated
 domain used by the player and RViz.
 
+## Weather and tyre grip
+
+Weather Editor, MCP `set_weather`, and CARLA API changes apply to an active
+FlatAsphalt or Silverstone Split session. Open **System Manager → Weather Status**
+or call MCP `weather_status` to read the current weather and wheel grip.
+Rain builds cloud cover, wets the road, and collects standing water. When rain
+stops, the sky moves back toward the selected cloud cover. Clear Noon clears
+the sky and leaves the road to dry. Sunlight, higher asphalt temperature, and
+wind speed up drying. The estimated rubber temperature follows air and asphalt
+temperature and adjusts grip around a generic operating band. At zero wetness
+and standing water, the vehicle returns to its temperature-adjusted dry grip.
+
+The tyre solver resolves contact, suspension, slip, and the local physical
+material at each wheel. Use `/sim/feedback/tire_forces` while rolling to observe
+slip ratio, the effective coefficient, and wheel loads. The manual tyre-friction
+service takes priority while its friction trigger is present. The thermal and
+wet-grip curves approximate the FSAI tyres pending measured compound data.
+
+Fog and dust reduce contrast with scene distance on both ZED image topics and
+in the driving window. Wet
+asphalt has darker diffuse shading and more sky reflection at shallow angles.
+The adapter uses low-resolution CARLA depth for both effects and temporarily
+falls back to uniform haze when depth is unavailable. Rain, fog and dust attenuate
+LiDAR intensity, can drop weak returns and can produce sparse near-field returns
+in `/velodyne_points`. These optical effects are approximate. The LiDAR topics,
+timestamps and `PointCloud2` fields retain their usual format.
+
 ## Bridge and vehicle
 
 | Topic | Publisher | Consumers or purpose |

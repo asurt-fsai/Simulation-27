@@ -11,7 +11,7 @@ import zipfile
 if os.environ.get("ASURT_ROOT"):
     sys.path.insert(0, str(Path(os.environ["ASURT_ROOT"]) / "Simulation/CARLA/Launchers"))
 from map_packs import catalog, register
-from session import LAUNCH, LOG_ROOT, PROFILES, PYTHON, running_session
+from session import LAUNCH, LOG_ROOT, PROFILES, PYTHON, last_session_failure, running_session
 
 
 def main():
@@ -28,8 +28,10 @@ def main():
     process = None
 
     ttk.Label(panel, text="Simulator").grid(row=0, column=0, sticky="w")
-    ttk.Combobox(panel, textvariable=profile, values=list(PROFILES.values()),
-                 state="readonly", width=34).grid(row=0, column=1, sticky="ew", pady=4)
+    profile_control = (ttk.Label(panel, textvariable=profile) if len(PROFILES) == 1 else
+                       ttk.Combobox(panel, textvariable=profile, values=list(PROFILES.values()),
+                                    state="readonly", width=34))
+    profile_control.grid(row=0, column=1, sticky="ew", pady=4)
     ttk.Label(panel, text="Map").grid(row=1, column=0, sticky="w")
     choices = ttk.Combobox(panel, textvariable=map_name, state="readonly", width=34)
     choices.grid(row=1, column=1, sticky="ew", pady=4)
@@ -55,14 +57,21 @@ def main():
         except (OSError, ValueError, KeyError, AttributeError, TypeError, zipfile.BadZipFile) as exc:
             status.set(str(exc))
 
-    def check_launch(key):
+    def check_launch(key, target, previous_error):
         state = running_session()
-        if state and state["map_key"] == key and state["phase"] == "ready":
+        failure = last_session_failure()
+        if state and state["map_key"] == key and state["profile"] == target and state["phase"] == "ready":
             status.set(f"{map_name.get()} is ready.")
+        elif failure and failure != previous_error and (failure["profile"], failure["map_key"]) == (target, key):
+            if process.poll() is None:
+                status.set(f"{failure['message']}\nClosing the failed session. Logs: {failure['log']}")
+                root.after(500, check_launch, key, target, previous_error)
+                return
+            status.set(f"{failure['message']}\nLogs: {failure['log']}")
         elif process.poll() is not None:
             status.set(f"Launch exited with code {process.returncode}. See map-switch.log.")
         else:
-            root.after(500, check_launch, key)
+            root.after(500, check_launch, key, target, previous_error)
             return
         load_button.state(["!disabled"])
 
@@ -85,6 +94,7 @@ def main():
         if current:
             arguments += ["--session-state", current["state"]]
         log = LOG_ROOT / "tools/map-switch.log"
+        previous_error = last_session_failure()
         try:
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("ab") as stream:
@@ -97,7 +107,7 @@ def main():
             return
         status.set(f"Loading {map_name.get()} in a fresh session.")
         load_button.state(["disabled"])
-        root.after(500, check_launch, key)
+        root.after(500, check_launch, key, target, previous_error)
 
     ttk.Button(panel, text="Add Map Pack…", command=add).grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=8)
     load_button = ttk.Button(panel, text="Load Map", command=load_map)

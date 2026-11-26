@@ -1,13 +1,15 @@
 """Offline tests for CARLA Weather Studio."""
-import importlib.util
 from pathlib import Path
+import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 
-source = Path(__file__).resolve().parents[1] / "carla_weather_gui.py"
-spec = importlib.util.spec_from_file_location("carla_weather_gui", source)
-gui = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gui)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "Simulator/Launchers"))
+import weather_control as gui
+from road_weather import RoadWeather, road_conditions
+from weather_grip import dry_grip_multiplier, grip_multiplier
 
 
 class FakeWeather:
@@ -30,6 +32,7 @@ class FakeWorld:
     def __init__(self):
         self.weather = FakeWeather()
         self.calls = 0
+        self.elapsed = 0.0
 
     def get_weather(self):
         return SimpleNamespace(**{key: getattr(self.weather, key)
@@ -39,10 +42,13 @@ class FakeWorld:
         self.calls += 1
         self.weather = weather
 
+    def get_snapshot(self):
+        return SimpleNamespace(timestamp=SimpleNamespace(elapsed_seconds=self.elapsed))
+
 
 class WeatherLogicTests(unittest.TestCase):
     def test_fields_unique(self):
-        self.assertEqual(len(gui.FIELDS), len(gui.BY_NAME))
+        self.assertEqual(len(gui.CONTROLS), len(gui.BY_NAME))
 
     def test_clamping_and_finite_validation(self):
         self.assertEqual(gui.clean_value("cloudiness", -20), 0)
@@ -89,6 +95,47 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(gui.scene_preset("dense_fog", None)["fog_density"], 50)
         with self.assertRaises(ValueError):
             gui.scene_preset("unknown", 45)
+
+    def test_timed_rain_gathers_clouds_and_wet_road_survives_clearing(self):
+        world = FakeWorld()
+        with tempfile.TemporaryDirectory() as directory:
+            weather = RoadWeather(directory)
+            weather.update(world)
+            gui.set_weather_fields(world, {"rain_duration_s": 10, "precipitation": 90}, directory)
+            for world.elapsed in range(1, 10):
+                weather.update(world)
+            storm = world.weather.cloudiness
+            self.assertGreater(storm, 65)
+            world.elapsed = 10
+            weather.update(world)
+            self.assertEqual(world.weather.precipitation, 0)
+            self.assertGreater(world.weather.wetness, 15)
+            self.assertLess(world.weather.cloudiness, storm)
+            gui.set_weather_fields(world, gui.scene_preset("clear_noon", None), directory)
+            world.elapsed = 11
+            weather.update(world)
+            self.assertEqual(world.weather.cloudiness, 0)
+            self.assertGreater(world.weather.wetness, 15)
+
+    def test_warmer_sunnier_road_dries_faster_and_restores_thermal_grip(self):
+        weather = FakeWorld().get_weather()
+        weather.wetness, weather.precipitation_deposits = 12, 5
+        cold = road_conditions(weather, 5, None, 60)
+        hot = road_conditions(weather, 35, None, 60)
+        weather.sun_altitude_angle = 0
+        night = road_conditions(weather, 35, None, 60)
+        self.assertLess(hot[1], cold[1])
+        self.assertLess(hot[1], night[1])
+        self.assertLess(grip_multiplier(weather, 12), dry_grip_multiplier(12))
+        weather.wetness, weather.precipitation_deposits = hot[1:3]
+        partly_dry = grip_multiplier(weather, 12)
+        _, weather.wetness, weather.precipitation_deposits, _ = road_conditions(weather, 35, None, 180)
+        self.assertEqual(weather.wetness, 0)
+        self.assertEqual(weather.precipitation_deposits, 0)
+        self.assertGreater(grip_multiplier(weather, 12), partly_dry)
+        self.assertEqual(grip_multiplier(weather, 12), dry_grip_multiplier(12))
+        self.assertGreater(grip_multiplier(weather, 32), grip_multiplier(weather, 12))
+        self.assertGreater(grip_multiplier(weather, 32), grip_multiplier(weather, 58))
 
 
 if __name__ == "__main__":

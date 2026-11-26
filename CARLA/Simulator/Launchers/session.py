@@ -18,6 +18,9 @@ import carla
 import yaml
 
 from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map
+from road_weather import RoadWeather
+from weather_grip import WeatherGrip
+from windows_interop import powershell_exe
 from world_selection import select_world
 
 
@@ -46,7 +49,7 @@ RVIZ_PRESETS = {
     "track-control-rviz": "control_track_mode.rviz",
 }
 GOAL_RVIZ = {"planning-goal-pose-rviz", "control-rviz", "track-control-rviz"}
-LIVE_TOOLS = ("track", "weather", "cancel-goal", *RVIZ_PRESETS)
+LIVE_TOOLS = ("track", "weather", "weather-status", "cancel-goal", *RVIZ_PRESETS)
 MAPS = {"flat-asphalt": "Carla/Maps/FlatAsphalt"}
 MAP_LABELS = {"flat-asphalt": "FlatAsphalt"}
 MAP_PACKS = map_catalog()
@@ -64,8 +67,16 @@ class RendererStartupError(RuntimeError):
 
 
 def windows_host():
-    route = subprocess.check_output(["ip", "-j", "route", "show", "default"], text=True)
-    return json.loads(route)[0]["gateway"]
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        mode = subprocess.check_output(["wslinfo", "--networking-mode"], text=True, timeout=5).strip()
+        if mode == "mirrored":
+            return "127.0.0.1"
+    routes = subprocess.check_output(["ip", "-j", "route", "show", "default", "dev", "eth0"],
+                                     text=True, timeout=5)
+    gateway = next((entry["gateway"] for entry in json.loads(routes) if "gateway" in entry), None)
+    if not gateway:
+        raise RuntimeError("WSL cannot find the Windows host. Check WSL networking before launching Native Windows.")
+    return gateway
 
 
 def windows_flat_pointer():
@@ -116,6 +127,13 @@ def running_session():
     return None
 
 
+def last_session_failure():
+    try:
+        return json.loads((LOG_ROOT / "session-start-error.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def record_session(data):
     path = session_file()
     temporary = path.with_suffix(".tmp")
@@ -157,7 +175,7 @@ def stop_process(proc):
 
 def run_windows(action, runtime, identity="", *, map_path=MAPS["flat-asphalt"]):
     script = subprocess.check_output(["wslpath", "-w", LAUNCH / "windows-server.ps1"], text=True).strip()
-    args = ["powershell.exe", "-NoProfile", "-File", script,
+    args = [powershell_exe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
             "-Action", action, "-Runtime", runtime, "-Map", f"/Game/{map_path}"]
     if identity:
         args += ["-Identity", identity]
@@ -182,7 +200,7 @@ def load_world(host, port, deadline, ensure_alive):
         except RuntimeError as exc:
             last_error = str(exc)
             time.sleep(1)
-    raise RuntimeError(f"CARLA {host}:{port} did not reach world readiness: {last_error}")
+    raise TimeoutError(f"CARLA {host}:{port} did not reach world readiness: {last_error}")
 
 
 def check_empty_episode(world):
@@ -379,7 +397,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
         run_dir = LOG_ROOT / (time.strftime("%Y%m%d-%H%M%S") + f"-{profile}-{map_key}-{os.getpid()}")
         run_dir.mkdir()
         display = ":1" if profile == "novnc" else ":0"
-        host, port = (windows_host(), 2100) if profile == "windows" else ("127.0.0.1", 2000)
+        host, port = "127.0.0.1", 2100 if profile == "windows" else 2000
         env = dict(os.environ, DISPLAY=display, ROS_DOMAIN_ID=str(domain),
                    SDL_VIDEODRIVER="x11", SDL_AUDIODRIVER="dummy",
                    ASURT_CARLA_HOST=host, ASURT_CARLA_PORT=str(port), ASURT_CLIENT_BUSY_WAIT="0")
@@ -390,25 +408,17 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                        state=str(run_dir / "course-actors.json"), phase="starting")
         env.update(ASURT_CONE_STATE=session["state"],
                    ASURT_SESSION_LOG=str(run_dir),
+                   ASURT_ROAD_WEATHER_DIR=str(run_dir),
                    ASURT_LEGACY_CONE_STATE=str(BRIDGE / "scripts/.cone_track_actors.json"))
         if flat:
             session["course_origin"] = flat["course_origin"]
             env["ASURT_COURSE_ORIGIN"] = json.dumps(flat["course_origin"])
         session["perception_modules"] = [module.name for module in perception_modules]
         record_session(session)
-        print(f"ASURT {profile} at {host}:{port}. Logs: {run_dir}", flush=True)
         processes = {}
         windows_identity = ""
-        windows_runtime = r"E:\ASURT\Simulation\CARLA\Runtime\Candidates\asurt-win64-20261121"
-        if profile == "windows":
-            runtime_root = Path("/mnt/e/ASURT/Simulation/CARLA/Runtime")
-            if flat:
-                windows_runtime = windows_flat_pointer()
-            elif not candidate:
-                windows_runtime = (runtime_root / "Active/asurt-win64.txt").read_text().strip()
-            elif not (runtime_root / "Candidates/asurt-win64-20261121/WindowsNoEditor").is_dir():
-                windows_runtime = r"E:\ASURT\Simulation\CARLA\Runtime\Candidates\asurt-win64-content-20261121"
-            session["runtime"] = windows_runtime
+        windows_probe_after = 0.0
+        windows_runtime = ""
 
         def start(name, args, *, environment=env):
             with (run_dir / f"{name}.log").open("ab") as output:
@@ -417,6 +427,13 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
             processes[name] = proc
 
         def ensure_alive():
+            nonlocal windows_probe_after
+            if windows_identity and time.monotonic() >= windows_probe_after:
+                windows_probe_after = time.monotonic() + 4.0
+                try:
+                    run_windows("ready", windows_runtime, windows_identity)
+                except RuntimeError as exc:
+                    raise RuntimeError(f"Native Windows CARLA exited. See {run_dir} for startup details.") from exc
             for name, proc in processes.items():
                 if session["phase"] == "ready" and name in module_names:
                     continue
@@ -434,8 +451,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
             if profile == "windows":
                 if pack is not None:
                     install_map(pack, "WindowsNoEditor", windows_runtime_directory(windows_runtime))
-                startup_map = MAPS["flat-asphalt"] if pack is not None else map_path
-                windows_identity = run_windows("start", windows_runtime, map_path=startup_map)
+                windows_identity = run_windows("start", windows_runtime, map_path=map_path)
                 try:
                     yield
                 finally:
@@ -495,10 +511,28 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
 
         for sig in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, shutdown)
+        startup_error = LOG_ROOT / "session-start-error.json"
+        startup_error.unlink(missing_ok=True)
+
+        def report_failure(exc):
+            session["phase"] = "failed"
+            record_session(session)
+            temporary = startup_error.with_suffix(".next")
+            temporary.write_text(json.dumps({"message": str(exc).splitlines()[0],
+                                             "log": str(run_dir), "map_key": map_key, "profile": profile}))
+            temporary.replace(startup_error)
+
         try:
+            if profile == "windows":
+                host = windows_host()
+                env["ASURT_CARLA_HOST"] = session["host"] = host
+                windows_runtime = windows_flat_pointer()
+                session["runtime"] = windows_runtime
+                record_session(session)
+            print(f"ASURT {profile} at {host}:{port}. Logs: {run_dir}", flush=True)
             with server():
                 try:
-                    deadline = time.monotonic() + 420
+                    deadline = time.monotonic() + (100 if profile == "windows" else 420)
                     if profile != "windows":
                         while not linux_port_is_listening(port) and time.monotonic() < deadline:
                             ensure_alive()
@@ -508,7 +542,13 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                             if "READY — Simulator server running." in (run_dir / "server.log").read_text(errors="replace"):
                                 break
                             time.sleep(1)
-                    client, world, world_map = load_world(host, port, deadline, ensure_alive)
+                    try:
+                        client, world, world_map = load_world(host, port, deadline, ensure_alive)
+                    except TimeoutError as exc:
+                        if profile == "windows":
+                            raise RuntimeError("Native CARLA started but WSL could not reach its RPC port. "
+                                               "Rerun the installer to repair Windows firewall access.") from exc
+                        raise
                     world, world_map = select_world(client, world, world_map, map_path)
                     print(f"ROAD_READY map={world_map.name} client={client.get_client_version()} "
                           f"server={client.get_server_version()}", flush=True)
@@ -537,21 +577,29 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     settings = world.get_settings()
                     if not (settings.synchronous_mode and abs(settings.fixed_delta_seconds - 0.033) < 1e-6):
                         raise RuntimeError(f"Unexpected world settings: {settings}")
+                    hero = next(actor for actor in world.get_actors().filter(HERO)
+                                if actor.attributes.get("role_name") == "hero")
+                    weather_grip = WeatherGrip(world, hero)
+                    road_weather = RoadWeather(run_dir)
+                    road_weather.update(world)
                     delta = install_course(session, world, run_dir / "course.log", acceptance, env, flat)
                     for module in perception_modules:
                         start(module.name, module.command())
                     start("driving", [PYTHON, "-m", "carla_telemetry.manual_control", "--host", host,
                                       "-p", str(port), "--rolename", "hero", "--filter", HERO, "--generation",
-                                      generation, "--res", "800x450", "--render-rate", "60", "--attach"])
+                                      generation, "--res", "800x450", "--render-rate", "24", "--attach"])
                     deadline = time.monotonic() + 65
-                    while expected_roles:
+                    while True:
                         ensure_alive()
                         world.wait_for_tick(12)
                         live_roles = [actor.attributes.get("role_name") for actor in world.get_actors()
                                       if actor.attributes.get("role_name") in expected_roles]
-                        if len(live_roles) == len(expected_roles) and set(live_roles) == expected_roles:
+                        driving_ready = (run_dir / "driving-ready").is_file()
+                        if driving_ready and len(live_roles) == len(expected_roles) and set(live_roles) == expected_roles:
                             break
                         if time.monotonic() >= deadline:
+                            if not driving_ready:
+                                raise RuntimeError(f"The driving window received no camera frame. See {run_dir / 'driving.log'}")
                             raise RuntimeError(
                                 f"Sensor actor readiness failed. Found {live_roles}, expected {expected_roles}"
                             )
@@ -565,11 +613,21 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     report = run_dir / "module-status.json"
                     previous = None
                     config_error = None
-                    elapsed = 0
+                    weather_error = None
                     while True:
                         if processes["driving"].poll() == 0:
                             return
                         ensure_alive()
+                        try:
+                            weather = road_weather.update(world)
+                            grip = weather_grip.update(weather, road_weather.tire_c)
+                            weather_error = None
+                            if grip is not None:
+                                print(f"Road weather grip multiplier: {grip:.2f}", flush=True)
+                        except (RuntimeError, OSError, ValueError) as exc:
+                            if str(exc) != weather_error:
+                                weather_error = str(exc)
+                                print(f"Road weather grip update failed: {exc}", flush=True)
                         try:
                             latest_modules, _, updated = module_plan()
                             managed.reconfigure(latest_modules)
@@ -587,16 +645,20 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                             temporary.write_text(json.dumps(current, indent=2) + "\n")
                             temporary.replace(report)
                             previous = current
-                        if profile == "windows" and elapsed % 10 == 0:
-                            run_windows("ready", windows_runtime, windows_identity)
                         time.sleep(1)
-                        elapsed += 1
+                except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as exc:
+                    report_failure(exc)
+                    raise
                 finally:
                     for name, proc in reversed(tuple(processes.items())):
                         if name != "server":
                             stop_process(proc)
         except KeyboardInterrupt:
             print("ASURT stopped.", flush=True)
+        except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as exc:
+            if session["phase"] != "failed":
+                report_failure(exc)
+            raise
         finally:
             session_file().unlink(missing_ok=True)
 
@@ -629,7 +691,7 @@ def tool(profile, action, arguments, expected_session=None):
     if automatic:
         if expected_session is not None and (not data or data["state"] != expected_session):
             raise RuntimeError("The simulator changed. Open the tool again to use the current session.")
-        if action in ("track", "weather", "cancel-goal") and (not data or data["phase"] != "ready"):
+        if action in ("track", "weather", "weather-status", "cancel-goal") and (not data or data["phase"] != "ready"):
             raise RuntimeError("Start a simulator and wait until it is ready.")
         profile = data["profile"] if data else "wslg"
     display = data["display"] if data and data["profile"] == profile else (":1" if profile == "novnc" else ":0")
@@ -657,8 +719,12 @@ def tool(profile, action, arguments, expected_session=None):
             else:
                 arguments += ["--state", data["state"]]
         cmd = [PYTHON, script, *arguments]
-    elif action == "weather":
-        cmd = [PYTHON, tool_path(action, TOOLS / "Weather Editor/carla_weather_gui.py")]
+    elif action in ("weather", "weather-status"):
+        stock = TOOLS / "Weather Editor/carla_weather_gui.py"
+        cmd = [PYTHON, stock, "--status"] if action == "weather-status" else [PYTHON, tool_path(action, stock)]
+        if data and data["profile"] == profile:
+            window_env["ASURT_ROAD_WEATHER_DIR"] = data["log"]
+        window_env["PYTHONPATH"] = str(LAUNCH) + os.pathsep + window_env.get("PYTHONPATH", "")
     elif action in RVIZ_PRESETS:
         cmd = ["rviz2", "-d", tool_path(action, TOOLS / "RViz/config" / RVIZ_PRESETS[action])]
         if action in GOAL_RVIZ:
@@ -676,17 +742,20 @@ def tool(profile, action, arguments, expected_session=None):
     elif action == "ros-bags":
         window_env.update(ASURT_LAUNCHERS=str(LAUNCH))
         cmd = [PYTHON, tool_path(action, TOOLS / "ROS Bags/ros_bags.py")]
-    elif action == "tools":
-        cmd = [PYTHON, tool_path(action, LAUNCH / "tools-launcher.py")]
     elif action == "trackdraw":
         trackdraw = TOOLS / "Trackdraw/fs-trackdraw"
         os.chdir(trackdraw)
         cmd = [trackdraw / ".venv/bin/python", tool_path(action, trackdraw / "src/main.py")]
+        if os.environ.get("ASURT_PORTABLE"):
+            for variable in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "LD_LIBRARY_PATH"):
+                window_env.pop(variable, None)
+            if profile in ("windows", "wslg", "novnc"):
+                window_env["QT_QPA_PLATFORM"] = "xcb"
     else:
         raise ValueError(action)
     directory = LOG_ROOT / "tools"
     directory.mkdir(parents=True, exist_ok=True)
-    if action in ("track", "weather") and data and data["profile"] != profile:
+    if action in ("track", "weather", "weather-status") and data and data["profile"] != profile:
         raise RuntimeError(f"Use the {data['profile']} tool shortcut for the running simulator.")
     bound = action in LIVE_TOOLS and data and data["profile"] == profile and data["phase"] == "ready"
     lock_name = action if action in (*RVIZ_PRESETS, "manager", "ros-bags") else f"{action}-{profile}"
@@ -815,7 +884,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", choices=(*PROFILES, "auto"))
     parser.add_argument("action", choices=("start", "switch-map", "open-map", "stop", "status", *LIVE_TOOLS,
-                                           "trackdraw", "viewer", "manager", "map-packs", "ros-bags", "tools"))
+                                           "trackdraw", "viewer", "manager", "map-packs", "ros-bags"))
     parser.add_argument("--candidate", action="store_true")
     parser.add_argument("--acceptance", action="store_true")
     parser.add_argument("--packed-candidate", action="store_true")
@@ -829,7 +898,7 @@ def main():
         if active and active["profile"] == args.profile and not args.session_state:
             args.session_state = active["state"]
         args.action = "switch-map"
-    if args.profile == "auto" and args.action not in (*LIVE_TOOLS, "trackdraw", "manager", "map-packs", "ros-bags", "tools"):
+    if args.profile == "auto" and args.action not in (*LIVE_TOOLS, "trackdraw", "manager", "map-packs", "ros-bags"):
         parser.error("Select a simulator profile for this action")
     if args.action in ("start", "switch-map"):
         if args.packed_candidate and args.profile == "windows":

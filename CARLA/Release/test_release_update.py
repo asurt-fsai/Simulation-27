@@ -158,7 +158,11 @@ class ReleaseUpdateTest(unittest.TestCase):
         config["platform"] = "windows"
         with patch("release_update.subprocess.check_output", return_value="C:\\ASURT\\Install-ASURT.ps1\n"):
             args = update.installer_command(self.root, self.state, config)
-        self.assertEqual(args[-2:], ["-Maps", "all"])
+        self.assertEqual(args[-3:], ["-Maps", "all", "-NativeOnly"])
+        with patch("release_update.subprocess.check_output", return_value="C:/ASURT/Install-ASURT.ps1"), \
+             patch("release_update.powershell_exe", return_value="powershell.exe"):
+            args = update.installer_command(self.root, self.state, config, add_wslg=True)
+        self.assertEqual(args[-3:], ["-Maps", "all", "-WithWslg"])
         self.assertIn("-Distribution", args)
 
     def test_declining_prompts_once_per_manager_launch(self):
