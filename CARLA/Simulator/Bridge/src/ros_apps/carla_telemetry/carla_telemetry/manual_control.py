@@ -1359,13 +1359,15 @@ class CameraManager(object):
         array = array[:, :, :3]
         weather = self._weather
         depth_frame = self._depth_frame
-        if weather is not None and (weather.precipitation > 3 or self._camera_weather.needs_scene_depth(weather)):
+        if weather is not None and (weather.precipitation >= 3 or self._effects.lens_is_wet(2)
+                                    or self._camera_weather.needs_scene_depth(weather)):
             depth, plane = None, None
             if depth_frame is not None and abs(depth_frame[0] - image.timestamp) <= 0.12:
                 _, depth, plane = depth_frame
             pose = image.transform.rotation
             array = self._effects.process(array, weather, pose.yaw, pose.pitch, image.frame, 2,
-                                          float(self.sensors[index][-1].get_attribute('fov').as_float()), depth, plane)
+                                          float(self.sensors[index][-1].get_attribute('fov').as_float()), depth, plane,
+                                          timestamp=image.timestamp)
         array = array[:, :, ::-1]
         self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
         if self.recording:

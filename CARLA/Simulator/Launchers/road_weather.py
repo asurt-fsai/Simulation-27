@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 DEFAULT_AIR_C = 22.0
+STORM_CLOUD_COVER = 60.0
 SETTINGS = "road-weather-settings.json"
 STATUS = "road-weather-status.json"
 
@@ -45,7 +46,10 @@ def approach(current, target, seconds, time_constant):
 
 def rain_cloud_cover(current, background, rainfall, seconds):
     rain = percent(rainfall) / 100.0
-    target = background + (100.0 - background) * min(1.0, 0.45 + 0.55 * rain) if rain else background
+    # The shipped sky renders near black above about 80% cloud cover even at
+    # noon. Bound the cloud added by rain and preserve explicitly chosen cover.
+    additional = max(0.0, STORM_CLOUD_COVER - background)
+    target = background + additional * (0.45 + 0.55 * rain) if rain else background
     cover = approach(current, target, seconds, 5.0 if rain else 22.0)
     return target if abs(target - cover) < 0.05 else cover
 

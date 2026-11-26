@@ -111,7 +111,7 @@ def scene_preset(name: str, heading: float | None) -> dict[str, float]:
         return sunny
     presets = {
         "clear_noon": dict(sunny, sun_altitude_angle=70),
-        "overcast": dict(stop_rain, cloudiness=90, fog_density=6, fog_distance=0, dust_storm=0),
+        "overcast": dict(stop_rain, cloudiness=60, fog_density=6, fog_distance=0, dust_storm=0),
         "light_rain": dict(precipitation=15, wind_intensity=20, fog_density=0, fog_distance=0, dust_storm=0),
         "heavy_rain": dict(precipitation=85, wind_intensity=65, fog_density=0, fog_distance=0, dust_storm=0),
         "clear_rain": dict(stop_rain, wetness=0, precipitation_deposits=0),

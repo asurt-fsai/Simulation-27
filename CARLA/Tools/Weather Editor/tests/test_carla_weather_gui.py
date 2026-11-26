@@ -5,10 +5,15 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "Simulator/Launchers"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]
+                       / "Modules/Perception/Adapters/CARLA/Camera/asurt_zed2i_sim"))
 import weather_control as gui
-from road_weather import RoadWeather, road_conditions
+from asurt_zed2i_sim.weather import WeatherEffects, road_wetness
+from road_weather import RoadWeather, rain_cloud_cover, road_conditions
 from weather_grip import dry_grip_multiplier, grip_multiplier
 
 
@@ -121,6 +126,33 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(heavy_water, 10)
         self.assertEqual(conditions[("heavy_rain", True)], (light, light_water))
 
+    def test_camera_reflections_follow_surface_water(self):
+        weather = SimpleNamespace(precipitation=85, wetness=0, precipitation_deposits=0)
+        self.assertEqual(road_wetness(weather), 0)
+        weather.wetness = 25
+        self.assertEqual(road_wetness(weather), 0.25)
+
+    def test_camera_droplets_persist_after_rain_and_dry_faster_in_the_sun(self):
+        clear = SimpleNamespace(precipitation=0, cloudiness=0, sun_altitude_angle=70)
+        cloudy = SimpleNamespace(precipitation=0, cloudiness=95, sun_altitude_angle=70)
+        rain = SimpleNamespace(precipitation=85, cloudiness=90, sun_altitude_angle=70)
+        image = np.full((180, 320, 3), 120, np.uint8)
+
+        def after_sixteen_seconds(weather):
+            effects = WeatherEffects(glare_scale=0, noise_std=0)
+            effects.process(image, rain, 0, 0, 30, 0, timestamp=1.0)
+            after_rain = effects.process(image, weather, 0, 0, 510, 0, timestamp=17.0)
+            self.assertTrue(effects.lens_is_wet(0))
+            self.assertFalse(effects.lens_is_wet(1))
+            dried = effects.process(image, weather, 0, 0, 3000, 0, timestamp=100.0)
+            np.testing.assert_array_equal(dried, image)
+            self.assertFalse(effects.lens_is_wet(0))
+            return np.count_nonzero(after_rain != image)
+
+        sunny_drops = after_sixteen_seconds(clear)
+        self.assertGreater(sunny_drops, 0)
+        self.assertGreater(after_sixteen_seconds(cloudy), sunny_drops)
+
     def test_timed_rain_gathers_clouds_and_wet_road_survives_clearing(self):
         world = FakeWorld()
         with tempfile.TemporaryDirectory() as directory:
@@ -130,7 +162,8 @@ class WeatherLogicTests(unittest.TestCase):
             for world.elapsed in range(1, 10):
                 weather.update(world)
             storm = world.weather.cloudiness
-            self.assertGreater(storm, 65)
+            self.assertGreater(storm, 40)
+            self.assertLessEqual(storm, 60)
             world.elapsed = 10
             weather.update(world)
             self.assertEqual(world.weather.precipitation, 0)
@@ -141,6 +174,9 @@ class WeatherLogicTests(unittest.TestCase):
             weather.update(world)
             self.assertEqual(world.weather.cloudiness, 0)
             self.assertGreater(world.weather.wetness, 15)
+
+    def test_storm_cloud_limit_preserves_explicit_overcast(self):
+        self.assertEqual(rain_cloud_cover(92, 92, 85, 30), 92)
 
     def test_warmer_sunnier_road_dries_faster_and_restores_thermal_grip(self):
         weather = FakeWorld().get_weather()

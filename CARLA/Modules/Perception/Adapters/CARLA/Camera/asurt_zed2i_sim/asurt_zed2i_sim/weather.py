@@ -1,11 +1,12 @@
 """Depth-based visibility and approximate ZED lens effects over CARLA RGB."""
-from math import cos, radians, sin, tan
+from math import cos, exp, radians, sin, tan
 
 import cv2
 import numpy as np
 
 
 MIN_HAZE = 0.05
+MIN_LENS_WATER = 0.03
 
 
 def _get(weather, key, default=0.0):
@@ -24,8 +25,8 @@ def needs_scene_depth(weather):
 
 
 def road_wetness(weather):
-    return float(np.clip(max(_get(weather, "wetness"), _get(weather, "precipitation_deposits"),
-                             0.65 * _get(weather, "precipitation")) / 100.0, 0.0, 1.0))
+    actual_water = max(_get(weather, "wetness"), _get(weather, "precipitation_deposits"))
+    return float(np.clip(actual_water / 100.0, 0.0, 1.0))
 
 
 def decode_scene_depth(image):
@@ -50,11 +51,12 @@ def attenuate(image, distance, extinction, airlight):
     image += np.asarray(airlight, dtype=np.float32) * (1.0 - transmission)
 
 
-def shade_lens_droplets(image, rain, wind, scale, seed, frame):
+def shade_lens_droplets(image, water, wind, scale, seed, frame):
     height, width = image.shape[:2]
     rng = np.random.default_rng(seed + frame // 90)
     age = (frame % 90) / 90.0
-    for _ in range(min(34, int(rain * scale * 42))):
+    opacity = min(1.0, water / 0.50)
+    for _ in range(min(34, int(water * scale * 42))):
         radius = int(rng.integers(3, max(5, min(width, height) // 29)))
         drift = float(rng.uniform(-0.24, 0.24)) * wind
         cx = int(rng.integers(0, width) + age * radius * drift * 4.0)
@@ -78,8 +80,8 @@ def shade_lens_droplets(image, rain, wind, scale, seed, frame):
         highlight = 37.0 * rim * np.clip(-0.55 * u - 0.78 * v, 0.0, 1.0)
         shadow = 27.0 * rim * np.clip(0.50 * u + 0.75 * v, 0.0, 1.0)
         patch = image[y0:y1, x0:x1]
-        patch += (refracted - patch) * (0.82 * body[..., None])
-        patch += (highlight - shadow)[..., None]
+        patch += (refracted - patch) * (0.82 * opacity * body[..., None])
+        patch += opacity * (highlight - shadow)[..., None]
 
 
 def shade_wet_road(image, depth, camera_plane, horizontal_fov_deg, wetness, deposits):
@@ -131,9 +133,28 @@ class WeatherEffects:
         self._glare_key = None
         self._glare_mask = None
         self._noise_buffer = None
+        self._lenses = {}
+
+    def lens_is_wet(self, eye):
+        return eye in self._lenses and self._lenses[eye][0] >= MIN_LENS_WATER
+
+    def lens_water(self, eye, rain, cloud, wind, sun_altitude, timestamp, frame):
+        if timestamp is None:
+            return rain, frame
+        previous, last_time, pattern = self._lenses.get(eye, (0.0, timestamp, frame))
+        if timestamp < last_time:
+            return previous, pattern
+        seconds = timestamp - last_time
+        sun = max(0.0, sin(radians(sun_altitude))) * (1.0 - cloud)
+        drying_rate = 0.055 + 0.055 * sun + 0.020 * wind
+        water = max(rain, previous * exp(-drying_rate * seconds))
+        if rain >= MIN_LENS_WATER:
+            pattern = frame
+        self._lenses[eye] = water, timestamp, pattern
+        return water, pattern
 
     def process(self, bgr, weather, camera_yaw_deg, camera_pitch_deg, frame, eye,
-                horizontal_fov_deg=110.0, depth_m=None, camera_plane=None):
+                horizontal_fov_deg=110.0, depth_m=None, camera_plane=None, *, timestamp=None):
         """Return an independent image; never mutate raw CARLA frame data."""
         if not self.enabled:
             return bgr.copy()
@@ -189,9 +210,11 @@ class WeatherEffects:
             if dust >= MIN_HAZE:
                 attenuate(out, distance, 0.064 * dust**1.5, (145, 177, 205))
 
-        # Each lens has its own droplets, which drift across successive frames.
-        if rain > 0.03 and self.droplets_scale:
-            shade_lens_droplets(out, rain, wind, self.droplets_scale, self.seed + 173 * eye, frame)
+        # After the rain stops, the last droplets fade without adding new ones.
+        if self.droplets_scale:
+            water, pattern = self.lens_water(eye, rain, cloud, wind, sun_alt, timestamp, frame)
+            if water >= MIN_LENS_WATER:
+                shade_lens_droplets(out, water, wind, self.droplets_scale, self.seed + 173 * eye, pattern)
 
         if self.noise_std > 0:
             darkness = max(0, 0.4 - float(out.mean()) / 255.0)

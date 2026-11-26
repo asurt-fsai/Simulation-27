@@ -498,7 +498,7 @@ class Zed2iStereoNode(Node):
         depth, plane = self.scene_depth(eye, frame, timestamp)
         return self.effects.process(
             bgr, self.weather, self.camera_yaw, self.camera_pitch, frame,
-            0 if eye == "left" else 1, self.cal.hfov_deg, depth, plane,
+            0 if eye == "left" else 1, self.cal.hfov_deg, depth, plane, timestamp=timestamp,
         )
 
     def process_left(self, sample):
