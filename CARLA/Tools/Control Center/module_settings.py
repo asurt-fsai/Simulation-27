@@ -28,7 +28,7 @@ class ModuleSettings:
     def __init__(self, parent, changed):
         self.changed = changed
         self.build_job = None
-        self.shipped = {module.name: module for module in module_control.shipped_modules()}
+        self.catalog = module_control.shipped_modules(include_retired=True)
         self.window = tk.Toplevel(parent)
         self.window.title("Module Settings")
         self.window.transient(parent)
@@ -87,7 +87,7 @@ class ModuleSettings:
 
     def open_planner_settings(self):
         try:
-            planners = module_control.autonomous_planners()
+            planners = module_control.autonomous_planners(include_explicit=True)
         except (OSError, ValueError, KeyError) as error:
             messagebox.showerror("Autonomous Planner", str(error), parent=self.window)
             return
@@ -170,7 +170,10 @@ class ModuleSettings:
 
     def refresh(self, selection=None):
         self.sources = module_control.module_sources()
-        self.names = sorted(set(self.shipped) | self.sources.keys())
+        self.shipped = {module.name: module for module in self.catalog if not module.retired
+                        or self.sources.get(module.name, {}).get("binary")}
+        retired = {module.name for module in self.catalog if module.retired and module.name not in self.shipped}
+        self.names = sorted((set(self.shipped) | self.sources.keys()) - retired)
         self.list.delete(0, "end")
         for name in self.names:
             entry = self.sources.get(name, {})
@@ -242,7 +245,7 @@ class ModuleSettings:
             return
         updated = self.sources.copy()
         updated.pop(name, None)
-        if name in self.shipped:
+        if name in self.shipped and not self.shipped[name].retired:
             updated[name] = {"hidden": True}
         self.commit(updated, name)
 

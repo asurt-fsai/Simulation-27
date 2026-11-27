@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from asurt_update import digest, prepare_inference
+from asurt_update import digest, prepare_inference, verify_installation
 
 
 class CudaUpgradeTest(unittest.TestCase):
@@ -29,6 +29,16 @@ class CudaUpgradeTest(unittest.TestCase):
         self.link.parent.mkdir()
         self.link.symlink_to(self.cuda)
         self.target = self.root / 'inference' / digest(self.requirements)
+
+    @patch('asurt_update.subprocess.run')
+    def test_install_verification_requires_the_detected_backend(self, run):
+        for runtime, backend in ((self.cuda, 'cuda'), (None, 'cpu')):
+            with self.subTest(backend=backend):
+                verify_installation(self.stack, self.link.parent, runtime)
+                options = run.call_args.kwargs
+                self.assertEqual(options['env']['ASURT_EXPECT_INFERENCE_BACKEND'], backend)
+                self.assertEqual(options['env']['ASURT_RELEASE_CUDA_ROOT'], str(runtime) if runtime else '')
+                self.assertTrue(options['check'])
 
     @patch('asurt_update.subprocess.run')
     @patch('asurt_update.subprocess.check_output', return_value='cuda\n')

@@ -185,7 +185,7 @@ Visualization Manager:
     Enabled: true
     Displays:
     - Class: rviz_default_plugins/Path
-      Name: RViz Goal Pose | forward Dubins route
+      Name: RViz Goal Pose | classical cone route
       Enabled: true
       Topic:
         Value: /planning/goal_pose/path
@@ -209,7 +209,7 @@ Visualization Manager:
       Enabled: true
       Name: Pure Pursuit | steering lookahead (green dot)
       Topic:
-        Value: /control/pure_pursuit/target
+        Value: /marker_viz
         History Policy: Keep Last
         Depth: 10
         Reliability Policy: Reliable

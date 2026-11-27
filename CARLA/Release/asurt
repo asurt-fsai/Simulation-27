@@ -67,6 +67,11 @@ if [[ "$action" == workspace ]]; then
     exit
 fi
 if [[ "$action" == check ]]; then
+    if [[ -n ${ASURT_EXPECT_INFERENCE_BACKEND:-} && "$ASURT_INFERENCE_BACKEND" != "$ASURT_EXPECT_INFERENCE_BACKEND" ]]; then
+        printf 'ASURT installer expected %s inference, but the launcher selected %s.\n' \
+            "$ASURT_EXPECT_INFERENCE_BACKEND" "$ASURT_INFERENCE_BACKEND" >&2
+        exit 1
+    fi
     /usr/bin/python3 - <<'PY'
 import os
 import sys

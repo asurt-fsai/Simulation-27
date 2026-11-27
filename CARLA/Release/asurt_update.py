@@ -330,11 +330,80 @@ def add_ros_bags_to_edited_manager(target, stock):
     print(f"Added ROS Bags to the edited System Manager: {target}")
 
 
+def retired_module_paths(stack):
+    retirement = stack / "retired-modules.json"
+    if not retirement.is_file():
+        return []
+    entries = read_json(str(retirement))
+    if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
+        raise ValueError("Invalid bundled module retirement list")
+    packages = [Path(entry) for entry in entries]
+    for package in packages:
+        if (len(package.parts) < 5 or ".." in package.parts or
+                package.parts[:2] != SYSTEMS.parts or "Modules" not in package.parts[3:-1] or
+                package.parts[2] not in {"Perception", "SLAM", "PathPlanning", "Control"}):
+            raise ValueError(f"Invalid retired module package: {package}")
+    return packages
+
+
+def prune_retired_packages(stack):
+    for package in retired_module_paths(stack):
+        target = stack / package
+        if target.is_dir() and target.resolve() == stack.resolve() / package:
+            shutil.rmtree(target)
+
+
+def retire_seeded_modules(workspace, stack, known, sources):
+    """Remove only complete, unedited copies of retired bundled packages."""
+    packages = retired_module_paths(stack)
+    if not packages:
+        return
+    try:
+        local_sources = read_json(str(sources)) if sources.is_file() else {}
+    except (OSError, ValueError):
+        return
+    if not isinstance(local_sources, dict):
+        return
+    local_paths = [Path(value).expanduser().resolve() for settings in local_sources.values()
+                   if isinstance(settings, dict) for name in ("binary", "setup")
+                   if isinstance(value := settings.get(name), str) and value]
+    for package in packages:
+        if (stack / package).exists():
+            continue
+        target = workspace / package
+        # Workspace directories can be user-managed links. Leave them alone.
+        if not target.is_dir() or target.resolve() != workspace.resolve() / package:
+            continue
+        if any(path.is_relative_to(target.resolve()) or package.name in path.parts
+               for path in local_paths):
+            continue
+        contents = list(target.rglob("*"))
+        def unchanged(path):
+            key = path.relative_to(workspace).as_posix()
+            return not path.is_symlink() and (path.is_dir() or (
+                path.is_file() and known.get(key) == digest(path)))
+
+        if not all(unchanged(path) for path in contents):
+            continue
+        for path in sorted(contents, key=lambda item: len(item.parts), reverse=True):
+            if not unchanged(path):
+                continue
+            if path.is_file():
+                path.unlink(missing_ok=True)
+            elif path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+        if not any(target.iterdir()):
+            target.rmdir()
+            print(f"Removed retired bundled module: {package.name}")
+
+
 def seed_workspace(root, stack, installation):
     workspace = root / "workspace"
     workspace.mkdir(exist_ok=True)
     receipt = workspace / ".asurt-seed.json"
     known = read_json(str(receipt)) if receipt.is_file() else {}
+    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "asurt"
+    retire_seeded_modules(workspace, stack, known, config / "module-sources.json")
     current = root / "current"
     prior = current.resolve()
     previous = None
@@ -405,7 +474,6 @@ def seed_workspace(root, stack, installation):
     temporary.replace(receipt)
     map_packs = root / "state/maps"
     map_packs.mkdir(parents=True, exist_ok=True)
-    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "asurt"
     config.mkdir(parents=True, exist_ok=True)
     for name in ("module-sources.json", "tool-paths.json"):
         try:
@@ -535,6 +603,7 @@ def enable_dynamic_prop_sensor_trace(runtime):
 def verify_installation(candidate, settings, cuda_root):
     subprocess.run(['bash', candidate / 'bin/asurt', 'check'], check=True,
                    env=dict(os.environ, ASURT_ROOT=str(candidate), ASURT_STATE_ROOT=str(settings),
+                            ASURT_EXPECT_INFERENCE_BACKEND='cuda' if cuda_root else 'cpu',
                             ASURT_RELEASE_CUDA_ROOT=str(cuda_root) if cuda_root else ''))
 
 
@@ -615,6 +684,7 @@ def stack_with_patch(base, patch, *, repair=False):
         stage = Path(temporary) / "stack"
         shutil.copytree(base, stage)
         shutil.copytree(patch, stage, dirs_exist_ok=True)
+        prune_retired_packages(stage)
         (stage / "Simulation/CARLA/Launchers/tools-launcher.py").unlink(missing_ok=True)
         replace_directory(stage, target)
     return target

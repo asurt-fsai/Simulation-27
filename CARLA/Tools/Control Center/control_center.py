@@ -26,27 +26,18 @@ from session import (LOG_ROOT, MAP_LABELS, PROFILES, RVIZ_PRESETS, SESSION_REQUI
 MANAGER = RVIZ / "manage.py"
 VIEW_STATE = module_control.CONFIG / "control-center-view.json"
 TOOLS = {
-    "Perception": "rviz",
-    "ZED-only RViz": "zed-rviz",
-    "SLAM RViz": "slam-rviz",
-    "Advanced SLAM Diagnostics": "slam-diagnostics",
-    "Planning RViz": "planning-rviz",
-    "Control RViz": "control-rviz",
-    "Track Control RViz": "track-control-rviz",
     "Cancel Goal": "cancel-goal",
-    "Map Packs": "map-packs",
+    "Map Switcher": "map-packs",
     "ROS Bags": "ros-bags",
     "Track Importer": "track",
     "Weather Editor": "weather",
     "Trackdraw": "trackdraw",
 }
-PLANNING_VIEWS = {
-    "Overview": "planning-rviz",
-    "Classical": "planning-classical-rviz",
-    "Acceleration": "planning-acceleration-rviz",
-    "Skidpad": "planning-skidpad-rviz",
-    "Deep Learning": "planning-deep-learning-rviz",
-    "Goal Pose": "planning-goal-pose-rviz",
+OVERVIEW_VIEWS = {
+    "Perception": "rviz",
+    "SLAM": "slam-rviz",
+    "Planning": "planning-rviz",
+    "Control": "control-rviz",
 }
 BG, PANEL, CARD = "#14202e", "#223043", "#1a2737"
 FG, DIM, TEAL, GREEN, GOLD = "#f3f6fb", "#b0bed1", "#75dae8", "#65d2a7", "#f5b875"
@@ -86,7 +77,6 @@ class ControlCenter:
         self.signature = ()
         self.snapshot = {}
         self.info = tk.StringVar(value="Module switches persist across restarts.")
-        self.planning_view = tk.StringVar(value="Overview")
         self.connection = tk.StringVar(value="Checking simulator...")
         self.layout()
         self.refresh()
@@ -254,10 +244,14 @@ class ControlCenter:
             frame.pack(fill="x", pady=(0, 12))
             self.label(frame, section, 14, FG, True).pack(anchor="w", pady=(0, 10))
             if section == "Tools":
-                self.label(frame, "Planning RViz view", 9, DIM).pack(anchor="w")
-                choice = tk.OptionMenu(frame, self.planning_view, *PLANNING_VIEWS)
-                choice.configure(bg="#405169", fg=FG, relief="flat", highlightthickness=0)
-                choice.pack(fill="x", pady=(2, 6))
+                overview = tk.Menubutton(frame, text="RViz Preset", indicatoron=True,
+                                         bg="#405169", fg=FG, relief="flat", takefocus=True,
+                                         activebackground=TEAL, activeforeground=BG, pady=5)
+                views = tk.Menu(overview, tearoff=False)
+                for name in OVERVIEW_VIEWS:
+                    views.add_command(label=name, command=lambda n=name: self.launch_tool(n))
+                overview.configure(menu=views)
+                overview.pack(fill="x", padx=2, pady=(0, 6))
             buttons = tk.Frame(frame, bg=PANEL)
             buttons.pack(fill="x")
             buttons.columnconfigure((0, 1), weight=1, uniform="tools")
@@ -453,8 +447,7 @@ class ControlCenter:
                 return
             args = ["auto", "weather-status", "--session-state", active["state"]]
         else:
-            action = (PLANNING_VIEWS[self.planning_view.get()]
-                      if name == "Planning RViz" else TOOLS[name])
+            action = OVERVIEW_VIEWS[name] if name in OVERVIEW_VIEWS else TOOLS[name]
             if action in SESSION_REQUIRED_TOOLS and (not active or active["phase"] != "ready"):
                 self.info.set(f"Start a simulator before opening {name}.")
                 return

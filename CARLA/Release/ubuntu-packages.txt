@@ -5,10 +5,12 @@ ros-humble-cv-bridge
 ros-humble-image-transport
 ros-humble-pcl-conversions
 ros-humble-tf2-geometry-msgs
+ros-humble-tf-transformations
 ros-humble-ackermann-msgs
 ros-humble-rosbag2
 python3-setuptools
 python3-pip
+python3-pcl
 python3-numpy
 python3-packaging
 python3-protobuf

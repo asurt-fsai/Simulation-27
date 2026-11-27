@@ -16,7 +16,7 @@ from session import LAUNCH, LOG_ROOT, PROFILES, PYTHON, last_session_failure, la
 
 def main():
     root = tk.Tk()
-    root.title("ASURT Map Packs")
+    root.title("ASURT Map Switcher")
     panel = ttk.Frame(root, padding=16)
     panel.pack(fill="both", expand=True)
     active = running_session()

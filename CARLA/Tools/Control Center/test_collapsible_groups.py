@@ -52,6 +52,24 @@ class CollapsibleModuleTests(unittest.TestCase):
         except tk.TclError:
             pass
 
+    def test_tools_show_one_rviz_preset_menu_and_keep_simulator_tools(self):
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
+        choices = [widget for widget in descendants(self.root) if isinstance(widget, tk.Menubutton)]
+        self.assertEqual([widget.cget("text") for widget in choices], ["RViz Preset"])
+        menu = choices[0].nametowidget(choices[0].cget("menu"))
+        views = [menu.entrycget(index, "label") for index in range(menu.index("end") + 1)]
+        self.assertEqual(views, ["Perception", "SLAM", "Planning", "Control"])
+        with patch.object(self.center, "launch_tool") as launch:
+            menu.invoke(2)
+            self.center.tool_buttons["Map Switcher"].invoke()
+            self.assertEqual([call.args for call in launch.call_args_list], [("Planning",), ("Map Switcher",)])
+        self.assertEqual(set(self.center.tool_buttons), {"Quit CARLA", "Cancel Goal", "Map Switcher",
+                                                        "ROS Bags", "Track Importer", "Weather Editor", "Trackdraw"})
+
     def test_group_disclosure_and_independent_switches(self):
         ui = self.center
         self.assertEqual(ui.group_summaries["Perception"].cget("text"), "2/2 running")

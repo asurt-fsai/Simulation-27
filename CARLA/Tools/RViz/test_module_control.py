@@ -16,13 +16,13 @@ class ModuleSwitchTests(unittest.TestCase):
         self.assertEqual([m.name for m in perception],
                          ["zed2i", "velodyne", "lidar_cones", "zed_converter"])
         self.assertTrue(all(m.default_enabled for m in perception))
-        self.assertEqual(len(slam), 8)
+        self.assertEqual(len(slam), 5)
         self.assertEqual({module.label for module in slam if module.name in mod.FAKE_PROVIDERS},
                          {"FakeMAP", "FakeSLAM"})
         self.assertFalse(any(m.default_enabled for m in slam))
 
     def test_fusion_requires_both_sources(self):
-        modules = mod.definitions({})
+        modules = mod.definitions({"slam_fusion": {"binary": "/tmp/local_fusion"}})
         for dep in ("zed_converter", "lidar_cones"):
             desired, effective = mod.effective_states(modules, {"slam_fusion": True, dep: False})
             self.assertTrue(desired["slam_fusion"])
@@ -51,11 +51,21 @@ class ModuleSwitchTests(unittest.TestCase):
             self.assertTrue(effective["slam_fake_slam"])
             self.assertFalse(desired["slam_fake"])
             self.assertFalse(mod.saved_overrides()["slam_fake"])
-            mod.save_switches({"control_pure_pursuit_auto": True})
-            desired, effective = mod.save_switches({"control_stanley_auto": True})
-            self.assertTrue(effective["control_stanley_auto"])
-            self.assertFalse(desired["control_pure_pursuit_auto"])
+            mod.save_switches({"control_fs26_simple": True})
+            desired, effective = mod.save_switches({"control_fs26_adaptive": True})
+            self.assertTrue(effective["control_fs26_adaptive"])
+            self.assertFalse(desired["control_fs26_simple"])
             self.assertFalse(effective["planning_goal_pose"])
+
+    def test_only_fs26_control_is_bundled_and_retired_local_selection_survives(self):
+        controls = [module.name for module in mod.definitions({}) if module.group == "Control"]
+        self.assertEqual(controls, ["control_fs26_simple", "control_fs26_adaptive"])
+        entries = mod.definitions({"control_stanley_auto": {"binary": "/tmp/my_stanley",
+                                                           "setup": "/tmp/local_setup.bash"}})
+        old = next(module for module in entries if module.name == "control_stanley_auto")
+        self.assertTrue(old.local)
+        self.assertEqual(old.binary, "/tmp/my_stanley")
+        self.assertEqual(old.setup, "/tmp/local_setup.bash")
 
     def test_status_explains_disabled_and_transitive_prerequisites(self):
         entries = mod.definitions({})
@@ -64,7 +74,7 @@ class ModuleSwitchTests(unittest.TestCase):
         with mock.patch.object(mod, "module_plan", return_value=plan):
             status = {row["id"]: row for row in mod.live_states()["modules"]}
         self.assertEqual(status["slam_cone_map"]["prerequisites"], ["ZED Legacy Converter"])
-        self.assertIn("Cone Landmark Mapper", status["planning_classical"]["status"])
+        self.assertIn("FS-System-26 Cone Mapper", status["planning_classical"]["status"])
         self.assertIn("ZED Legacy Converter (disabled)", status["planning_classical"]["status"])
 
     def test_autonomous_planner_topics_skip_manual_and_raw_preview(self):
@@ -83,8 +93,10 @@ class ModuleSwitchTests(unittest.TestCase):
             self.assertEqual(mod.autonomous_planner(), "")
             mod.save_autonomous_planner("/planning/classical/path")
             self.assertEqual(mod.autonomous_planner(), "/planning/classical/path")
+            mod.save_autonomous_planner("/planning/goal_pose/path")
+            self.assertEqual(mod.autonomous_planner(), "/planning/goal_pose/path")
             with self.assertRaises(ValueError):
-                mod.save_autonomous_planner("/planning/goal_pose/path")
+                mod.save_autonomous_planner("/planning/track_goal/path")
             mod.save_autonomous_planner("")
             self.assertEqual(mod.autonomous_planner(), "")
 

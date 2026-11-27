@@ -32,8 +32,17 @@ def copy_changed_files(reference, overlay):
         cwd=builder.REPOSITORY, text=True).split("\0")
     for status, name in zip(changes[::2], changes[1::2]):
         path = PurePosixPath(name)
+        if path.as_posix() == "CARLA/Modules/FS-System-26.md":
+            continue
         if path.parts == builder.DRIVING_SOURCE.parts and status in ("A", "M"):
             builder.copy_driving_window(overlay)
+            continue
+        if path.parts[:2] == ("CARLA", "Modules") and (
+                (len(path.parts) > 5 and path.parts[3] == "Modules" and path.parts[4] == "LegacyFS26"
+                 and (path.parts[2], path.parts[5]) in {(g, p) for g, p, _, _ in builder.FS26_PACKAGES})
+                or (len(path.parts) == 5 and path.parts[3] == "Launch" and
+                    path.name in (*builder.FS26_LAUNCHERS.get(path.parts[2], ()),
+                                  "fs26_control_pair.py", "fs26_simple_bootstrap.py"))):
             continue
         if (len(path.parts) == 9 and path.parts[:5] == ("CARLA", "Modules", "Perception", "Adapters", "CARLA")
                 and builder.PYTHON_ADAPTERS.get(path.parts[6]) == path.parts[5]
@@ -110,6 +119,7 @@ def main():
         copy_changed_files(reference, overlay)
         launchers = builder.REPOSITORY / "CARLA/Simulator/Launchers"
         builder.adapt_launchers(launchers, overlay)
+        builder.stage_fs26(overlay)
         for name in ("Install-ASURT.sh", "Install-ASURT.ps1"):
             builder.copy(args.output / name, overlay / "bin" / name)
         builder.copy(builder.REPOSITORY / "ROS_TOPICS.md", overlay / "tools/RViz/ROS_TOPIC_OVERVIEW.md")
@@ -121,7 +131,9 @@ def main():
         patch, ("bin/asurt", f"{launch}/session.py", f"{launch}/world_selection.py",
                 f"{launch}/map_packs.py", f"{launch}/ros-parity-env.sh", f"{launch}/release_update.py",
                 f"{launch}/weather_grip.py", f"{launch}/road_weather.py", f"{launch}/windows_interop.py",
-                f"{launch}/windows-server.ps1", f"{launch}/process_ownership.py"))
+                f"{launch}/windows-server.ps1", f"{launch}/process_ownership.py",
+                "tools/RViz/modules.conf", "retired-modules.json", "libexec/asurt-fs26/control_pair",
+                "libexec/asurt-fs26/classical_goal"))
     (args.output / "asurt-release.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

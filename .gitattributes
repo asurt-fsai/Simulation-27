@@ -2,3 +2,4 @@
 *.ps1 text eol=lf
 CARLA/Release/asurt text eol=lf
 CARLA/Release/dev-build text eol=lf
+CARLA/Modules/**/LegacyFS26/** -text

@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from urllib.request import urlopen
+import zipfile
 
 
 HERE = Path(__file__).resolve().parent
@@ -47,6 +49,31 @@ PERCEPTION = Path("Simulation/Systems/Perception")
 PERCEPTION_WORKSPACE = PERCEPTION / "Workspace/autonomy_integration"
 DEP_PKG = "Simulation/Systems/Perception/Dependencies/onnxruntime"
 LEGACY = "Simulation/Systems/Legacy/fs-system-26-oldstack/Deeplearning/src/planning_deep_learning/planning_deep_learning/Completed_Models/best_model.onnx"
+FS26_PACKAGES = (
+    ("Control", "simple_pure_pursuit", "simple_pp_node", "simple_pure_pursuit.simple_pp_node"),
+    ("Control", "adaptive_pure_pursuit", "adaptive_pp_node", "adaptive_purepursuit.adaptive_pp_node"),
+    ("SLAM", "cone_mapping", "cone_mapping_node", "cone_mapping.cone_mapping_node"),
+)
+FS26_LAUNCHERS = {
+    "Control": ("run_fs26_control.sh", "run_fs26_simple.sh", "run_fs26_adaptive.sh"),
+    "SLAM": ("run_fs26_cone_mapping.sh",),
+    "PathPlanning": ("run_classical_goal.sh", "classical_goal.py"),
+}
+FS26_RETIRED = tuple("Simulation/Systems/" + package for package in (
+    "Control/Modules/PurePursuit/asurt_pure_pursuit_control",
+    "Control/Modules/Stanley/asurt_stanley_control",
+    "Control/Modules/Autonomous/asurt_autonomous_control",
+    "SLAM/Modules/CameraLocalization/asurt_camera_slam",
+    "SLAM/Modules/Fusion/asurt_slam_fusion",
+    "SLAM/Modules/LiDARMapping/asurt_lidar_odom_adapter",
+    "PathPlanning/Modules/GoalPose/asurt_goal_pose_planning",
+    "PathPlanning/Modules/TrackGoal/asurt_track_goal_planning",
+))
+TRANSFORMATIONS_WHEEL = (
+    "https://files.pythonhosted.org/packages/7e/46/8d70ff706699b44107f1c649ca4af7c9665da313b706cf5f4bb1ec4db1f4/"
+    "transformations-2025.1.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+)
+TRANSFORMATIONS_HASH = "2ed30be8eed56680dd1405117dfae58f2ebba99cff1333503b8cdac46c85f976"
 
 
 def digest(path):
@@ -108,6 +135,47 @@ def copy_driving_window(stack):
     editable = BRIDGE.joinpath(*DRIVING_SOURCE.parts[3:])
     for destination in (editable, DRIVING_INSTALL):
         copy(REPOSITORY / DRIVING_SOURCE, stack / destination)
+
+
+def stage_fs26(stack):
+    """Package the original Python nodes for the shared Ubuntu/WSL ROS stack."""
+    source = REPOSITORY / "CARLA/Modules"
+    systems = stack / "Simulation/Systems"
+    runtime = stack / "libexec/asurt-fs26"
+    (stack / "retired-modules.json").write_text(json.dumps(FS26_RETIRED, indent=2) + "\n", encoding="utf-8")
+    for group, package, executable, module in FS26_PACKAGES:
+        relative = Path(group) / "Modules/LegacyFS26" / package
+        copy(source / relative, systems / relative)
+        destination = runtime / package
+        python_package = module.split(".", 1)[0]
+        copy(source / relative / python_package, destination / python_package)
+        copy(source / relative / "config", destination / "config")
+        entry = destination / "lib" / package / executable
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        if executable == "simple_pp_node":
+            copy(source / "Control/Launch/fs26_simple_bootstrap.py", entry)
+        else:
+            entry.write_text(f"#!/usr/bin/python3\nfrom {module} import main\n\nmain()\n", encoding="utf-8")
+        entry.chmod(0o755)
+    for group, scripts in FS26_LAUNCHERS.items():
+        for script in scripts:
+            relative = Path(group) / "Launch" / script
+            copy(source / relative, systems / relative)
+    control_pair = runtime / "control_pair"
+    copy(source / "Control/Launch/fs26_control_pair.py", control_pair)
+    control_pair.chmod(0o755)
+    goal = runtime / "classical_goal"
+    copy(source / "PathPlanning/Launch/classical_goal.py", goal)
+    goal.chmod(0o755)
+    dependencies = runtime / "dependencies"
+    with tempfile.TemporaryDirectory() as temp:
+        wheel = Path(temp) / "transformations.whl"
+        with urlopen(TRANSFORMATIONS_WHEEL, timeout=25) as response, wheel.open("wb") as output:
+            shutil.copyfileobj(response, output)
+        if digest(wheel) != TRANSFORMATIONS_HASH:
+            raise ValueError("The FS-System-26 transformations wheel failed verification.")
+        with zipfile.ZipFile(wheel) as archive:
+            archive.extractall(dependencies)
 
 
 def adapt_launchers(source, stack):
@@ -312,6 +380,9 @@ def build_stack(args, output, workspace):
     for name in ("Install-ASURT.sh", "Install-ASURT.ps1"):
         copy(output / name, stack / "bin" / name)
     adapt_inference(stack)
+    stage_fs26(stack)
+    from asurt_update import prune_retired_packages
+    prune_retired_packages(stack)
     client = source / ".venvs/carla/lib/python3.10/site-packages"
     for name in ("carla", "carla-0.9.16.dist-info"):
         copy(client / name, stack / "client" / name)

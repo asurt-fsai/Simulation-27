@@ -25,7 +25,8 @@ RESERVED = {"server", "bridge", "driving", "viewer-inhibitor"}
 # The existing ID keeps saved switches and local builds when renamed to FakeMAP.
 FAKE_PROVIDERS = ("slam_fake_slam", "slam_fake")
 AUTONOMOUS_CONTROLLERS = ("control_pure_pursuit_auto", "control_stanley_auto")
-DRIVE_CONTROLLERS = (*AUTONOMOUS_CONTROLLERS, "control_pure_pursuit", "control_stanley")
+DRIVE_CONTROLLERS = (*AUTONOMOUS_CONTROLLERS, "control_pure_pursuit", "control_stanley",
+                     "control_fs26_simple", "control_fs26_adaptive")
 MANUAL_PLANNERS = {"planning_goal_pose", "planning_track_goal"}
 
 
@@ -43,6 +44,7 @@ class Module:
     local: bool = False
     arguments: tuple = ()
     revision: int = 0
+    retired: bool = False
 
     @property
     def dependencies(self):
@@ -55,7 +57,7 @@ class Module:
                 str(self.script or ""), *self.arguments]
 
 
-def shipped_modules():
+def shipped_modules(*, include_retired=False):
     """Validate the whole registry before performing a potentially live action."""
     result = []
     seen = set()
@@ -81,7 +83,7 @@ def shipped_modules():
         for dep in dependencies:
             if dep not in seen:
                 raise ValueError(f"Dependency {dep} must be registered before {name}")
-        if not group.strip() or not label.strip() or default not in ("on", "off"):
+        if not group.strip() or not label.strip() or default not in ("on", "off", "retired"):
             raise ValueError(f"Invalid UI/default values for module {name}")
         full_script = ROOT / script
         if not full_script.is_file():
@@ -92,11 +94,11 @@ def shipped_modules():
                       else WORKSPACE / "install" / binary)
         result.append(Module(
             name, str(executable), full_script, topic,
-            dependency, group.strip(), label.strip(), default == "on"
+            dependency, group.strip(), label.strip(), default == "on", retired=default == "retired"
         ))
         seen.add(name)
         topics.add(topic)
-    return result
+    return result if include_retired else [module for module in result if not module.retired]
 
 
 def module_sources(path=None):
@@ -117,9 +119,9 @@ def definitions(sources=None, *, validate=False):
     sources = module_sources() if sources is None else sources
     if not isinstance(sources, dict):
         raise ValueError("Module settings must be a JSON object.")
-    shipped = {m.name: m for m in shipped_modules()}
+    shipped = {m.name: m for m in shipped_modules(include_retired=True)}
     modules = shipped.copy()
-    hidden = set()
+    hidden = {name for name, module in shipped.items() if module.retired}
     for name, settings in sources.items():
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or name in RESERVED or not isinstance(settings, dict):
             raise ValueError(f"Invalid module ID: {name}")
@@ -136,6 +138,7 @@ def definitions(sources=None, *, validate=False):
         if name in shipped:
             modules[name] = replace(shipped[name], binary=binary, setup=setup, local=True,
                                     revision=settings.get("revision", 0))
+            hidden.discard(name)
             continue
         label, group, topic = (settings[key].strip() for key in ("label", "group", "topic"))
         depends = tuple(value.strip() for value in settings.get("dependencies", "").split(",") if value.strip())
@@ -174,12 +177,16 @@ def definitions(sources=None, *, validate=False):
     return active
 
 
-def autonomous_planners():
-    return {
+def autonomous_planners(*, include_explicit=False):
+    entries = definitions()
+    topics = {
         module.topic: module.label
-        for module in definitions() if module.group.casefold() in {"pathplanning", "path planning", "planning"}
-        and module.name not in MANUAL_PLANNERS
+        for module in entries if module.group.casefold() in {"pathplanning", "path planning", "planning"}
+        and (module.name not in MANUAL_PLANNERS or (include_explicit and module.name == "planning_goal_pose"))
     }
+    if include_explicit and any(module.name == "planning_deep_learning" for module in entries):
+        topics["/planning/deep_learning/raw_path"] = "Deep Learning (raw LSTM)"
+    return topics
 
 
 def autonomous_planner():
@@ -193,7 +200,7 @@ def autonomous_planner():
 
 
 def save_autonomous_planner(topic):
-    if topic and topic not in autonomous_planners():
+    if topic and topic not in autonomous_planners(include_explicit=True):
         raise ValueError("Choose a registered autonomous planner.")
     CONFIG.mkdir(parents=True, exist_ok=True)
     path = None
@@ -228,11 +235,12 @@ def save_module_sources(sources, *, expected=None):
 
 
 def select_developer_build(name, install):
-    bundled = next((module for module in shipped_modules() if module.name == name), None)
+    existing = module_sources()
+    bundled = next((module for module in shipped_modules(include_retired=True)
+                    if module.name == name and (not module.retired or existing.get(name, {}).get("binary"))), None)
     if bundled is None:
         raise ValueError(f"Unknown bundled module: {name}")
     package, executable = Path(bundled.binary).parts[-2:]
-    existing = module_sources()
     sources = existing.copy()
     sources[name] = {
         "binary": str(install / package / "lib" / package / executable),
