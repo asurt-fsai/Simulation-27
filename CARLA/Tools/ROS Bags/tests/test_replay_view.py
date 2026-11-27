@@ -12,13 +12,14 @@ from rclpy.serialization import serialize_message
 from rosbag2_py import ConverterOptions, SequentialWriter, StorageOptions, TopicMetadata
 from sensor_msgs.msg import PointCloud2
 from tf2_msgs.msg import TFMessage
+from visualization_msgs.msg import Marker, MarkerArray
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bag_backend import read_bag, recorded_frame, replay_qos, rviz_config
+from bag_backend import read_bag, recorded_frame, replay_qos, required_tf, rviz_config
 
 
 class ReplayViewTests(unittest.TestCase):
-    def make_bag(self, path, with_tf):
+    def make_bag(self, path, with_tf, with_cones=False):
         odometry = Odometry()
         odometry.header.frame_id, odometry.child_frame_id = "map", "base_link"
         odometry.pose.pose.position.y = 847.0
@@ -26,6 +27,15 @@ class ReplayViewTests(unittest.TestCase):
         cloud.header.frame_id = "velodyne"
         messages = [("/odom", "nav_msgs/msg/Odometry", odometry),
                     ("/velodyne_points", "sensor_msgs/msg/PointCloud2", cloud)]
+        if with_cones:
+            clear = Marker(action=Marker.DELETEALL)
+            cone = Marker()
+            cone.header.frame_id = "base_link"
+            markers = MarkerArray(markers=[clear, cone])
+            for name in ("/perception_markers", "/zed/zed_node/cone_markers"):
+                messages.extend((name, "visualization_msgs/msg/MarkerArray", MarkerArray(markers=[clear]))
+                                for _ in range(68))
+                messages.append((name, "visualization_msgs/msg/MarkerArray", markers))
         if with_tf:
             for topic, parent, child in (("/tf", "map", "base_link"), ("/tf_static", "base_link", "velodyne")):
                 transform = TransformStamped()
@@ -33,8 +43,9 @@ class ReplayViewTests(unittest.TestCase):
                 messages.append((topic, "tf2_msgs/msg/TFMessage", TFMessage(transforms=[transform])))
         writer = SequentialWriter()
         writer.open(StorageOptions(uri=str(path), storage_id="sqlite3"), ConverterOptions("cdr", "cdr"))
-        for number, (topic, message_type, message) in enumerate(messages):
+        for topic, message_type in dict((name, kind) for name, kind, _ in messages).items():
             writer.create_topic(TopicMetadata(name=topic, type=message_type, serialization_format="cdr"))
+        for number, (topic, _, message) in enumerate(messages):
             writer.write(topic, serialize_message(message), 1_000_000_000 + number)
 
     def test_view_follows_the_car_in_a_global_frame(self):
@@ -58,6 +69,31 @@ class ReplayViewTests(unittest.TestCase):
             fixed, target, warning = recorded_frame(bag, read_bag(bag)[-1], "")
             self.assertEqual((fixed, target), ("velodyne", "<Fixed Frame>"))
             self.assertIn("No recorded TF", warning)
+
+    def test_older_mixed_bag_opens_on_cones_even_with_a_leading_delete_all_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bag = Path(temporary) / "bag"
+            self.make_bag(bag, with_tf=False, with_cones=True)
+            topics = read_bag(bag)[-1]
+            fixed, target, warning = recorded_frame(bag, topics, "")
+            self.assertEqual((fixed, target), ("base_link", "<Fixed Frame>"))
+            self.assertIn("/velodyne_points", warning)
+            self.assertNotIn("/perception_markers", warning)
+            self.assertEqual(recorded_frame(bag, topics, "velodyne")[0], "velodyne")
+
+    def test_spatial_topics_keep_available_transform_streams(self):
+        topics = {"/tf": ("tf2_msgs/msg/TFMessage", 10),
+                  "/tf_static": ("tf2_msgs/msg/TFMessage", 1),
+                  "/camera": ("sensor_msgs/msg/Image", 10),
+                  "/cones": ("visualization_msgs/msg/MarkerArray", 10)}
+        self.assertEqual(required_tf(["/camera"], topics), ())
+        self.assertEqual(required_tf(["/cones"], topics), ("/tf", "/tf_static"))
+        self.assertEqual(required_tf(["/cones", "/tf"], topics), ("/tf_static",))
+        self.assertEqual(required_tf(["/cones"], dict(topics, **{"/tf": ("tf2_msgs/msg/TFMessage", 0)})),
+                         ("/tf_static",))
+        info = {"topics_with_message_count": [{"topic_metadata": {"name": "/tf_static",
+                                                                   "type": "tf2_msgs/msg/TFMessage"}}]}
+        self.assertEqual(replay_qos(info, topics)["/tf_static"]["durability"], "transient_local")
 
     def test_only_best_effort_display_topics_get_replay_overrides(self):
         metadata = {"topics_with_message_count": [

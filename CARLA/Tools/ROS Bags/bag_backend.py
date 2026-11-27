@@ -4,6 +4,7 @@ from concurrent.futures import CancelledError
 from contextlib import ExitStack, closing, contextmanager, suppress
 from copy import deepcopy
 import fcntl
+from itertools import chain
 import os
 from pathlib import Path
 import pty
@@ -35,7 +36,17 @@ DISPLAYS = {
     "nav_msgs/msg/Odometry": "Odometry",
     "sensor_msgs/msg/LaserScan": "LaserScan",
 }
-REPLAY_SUPPORT = {"/tf", "/tf_static", "/clock"}
+TF_TOPICS = ("/tf", "/tf_static")
+REPLAY_SUPPORT = {*TF_TOPICS, "/clock"}
+SPATIAL_DISPLAYS = DISPLAYS.keys() - {"sensor_msgs/msg/Image"}
+STATIC_TF_QOS = {"reliability": "reliable", "durability": "transient_local",
+                 "history": "keep_all", "depth": 10}
+
+
+def required_tf(selected, available):
+    if not any(available.get(topic, ("", 0))[0] in SPATIAL_DISPLAYS for topic in selected):
+        return ()
+    return tuple(topic for topic in TF_TOPICS if topic not in selected and available.get(topic, ("", 0))[1])
 
 
 def live_domain(session):
@@ -217,15 +228,27 @@ def recorded_frame(path, topics, manual):
     if info.get("storage_identifier") == "sqlite3" and not info.get("compression_mode"):
         for segment in segments[:2]:
             with closing(sqlite3.connect(segment.as_uri() + "?mode=ro", uri=True)) as db:
+                first, last = db.execute(
+                    "SELECT (SELECT timestamp FROM messages ORDER BY timestamp LIMIT 1), "
+                    "(SELECT timestamp FROM messages ORDER BY timestamp DESC LIMIT 1)").fetchone()
+                middle = first + (last - first) // 2 if first is not None else 0
                 for topic in topics:
                     kind = topics[topic][0]
-                    if kind not in DISPLAYS and topic not in ("/tf", "/tf_static"):
+                    if kind not in DISPLAYS and topic not in TF_TOPICS:
                         continue
-                    if topic in frames:
+                    if topic in frames and topic not in TF_TOPICS:
                         continue
-                    rows = db.execute(
-                        "SELECT messages.data FROM messages JOIN topics ON topics.id=messages.topic_id "
-                        "WHERE topics.name=? ORDER BY timestamp LIMIT ?", (topic, 32 if topic == "/tf_static" else 3))
+                    marker_array = kind == "visualization_msgs/msg/MarkerArray"
+                    limit = 32 if topic in TF_TOPICS or marker_array else 3
+                    query = ("SELECT messages.data FROM messages JOIN topics ON topics.id=messages.topic_id "
+                             "WHERE topics.name=?")
+                    rows = db.execute(query + " ORDER BY timestamp LIMIT ?", (topic, limit))
+                    if marker_array:
+                        # A recording can start before any cones come into view.
+                        rows = chain(rows,
+                                     db.execute(query + " AND timestamp>=? ORDER BY timestamp LIMIT ?",
+                                                (topic, middle, limit)),
+                                     db.execute(query + " ORDER BY timestamp DESC LIMIT ?", (topic, limit)))
                     for (data,) in rows:
                         try:
                             msg = deserialize_message(data, get_message(kind))
@@ -241,7 +264,8 @@ def recorded_frame(path, topics, manual):
                                         frames.setdefault(topic, parent)
                                 continue
                             elif kind == "visualization_msgs/msg/MarkerArray":
-                                frame = msg.markers[0].header.frame_id if msg.markers else ""
+                                frame = next((marker.header.frame_id for marker in msg.markers
+                                              if marker.action == marker.ADD and marker.header.frame_id), "")
                             else:
                                 frame = msg.header.frame_id
                                 if kind == "nav_msgs/msg/Odometry":
@@ -251,23 +275,40 @@ def recorded_frame(path, topics, manual):
                                 break
                         except (AttributeError, ImportError, RuntimeError, ValueError):
                             break
-    clouds = [f for t, f in frames.items() if topics[t][0] in ("sensor_msgs/msg/PointCloud2", "sensor_msgs/msg/LaserScan")]
-    if edges:
-        fixed = manual or next((f for t, f in frames.items() if topics[t][0] == "nav_msgs/msg/Odometry"),
-                               frames.get("/tf", frames.get("/tf_static")))
-        visited, pending = set(), [fixed.lstrip("/")]
+    def reachable(frame):
+        visited, pending = set(), [frame]
         while pending:
             current = pending.pop()
             if current not in visited:
                 visited.add(current)
                 pending.extend(edges.get(current, ()))
-        target = next((f for f in (odom_child, "base_link", *dynamic_targets, *clouds) if f in visited), None)
-        return fixed, target or "<Fixed Frame>", ""
-    frame = manual or next(iter(clouds), None) or next(
-        (f for t, f in frames.items() if topics[t][0] != "sensor_msgs/msg/Image"), next(iter(frames.values()), "map"))
-    warning = "No recorded TF. Choose a sensor frame if its display is blank." if any(
-        value[0] in DISPLAYS and value[0] != "sensor_msgs/msg/Image" for value in topics.values()) else ""
-    return frame, "<Fixed Frame>", warning
+        return visited
+
+    spatial = {topic: frame for topic, frame in frames.items() if topics[topic][0] in SPATIAL_DISPLAYS}
+    clouds = [frame for topic, frame in spatial.items()
+              if topics[topic][0] in ("sensor_msgs/msg/PointCloud2", "sensor_msgs/msg/LaserScan")]
+    odom_frame = next((frame for topic, frame in spatial.items()
+                       if topics[topic][0] == "nav_msgs/msg/Odometry" and frame in edges), "")
+    preferred = (odom_frame, frames.get("/tf"), frames.get("/tf_static"),
+                 "base_link" if "base_link" in spatial.values() else "", *clouds, *spatial.values())
+
+    def coverage(frame):
+        connected = reachable(frame)
+        return sum(value in connected for value in spatial.values())
+
+    fixed = manual.lstrip("/") or max((frame for frame in dict.fromkeys(preferred) if frame),
+                                     key=coverage,
+                                     default=next(iter(frames.values()), "map"))
+    connected = reachable(fixed)
+    target = next((frame for frame in (odom_child, "base_link", *dynamic_targets, *clouds)
+                   if frame in connected), fixed)
+    warnings = []
+    if not edges and any(kind in SPATIAL_DISPLAYS for kind, _ in topics.values()):
+        warnings.append("No recorded TF. Displays in different frames cannot be overlaid.")
+    disconnected = [topic for topic, frame in spatial.items() if frame not in connected]
+    if disconnected:
+        warnings.append(f"No recorded transform to {fixed} for: {', '.join(disconnected)}.")
+    return fixed, target if target != fixed else "<Fixed Frame>", " ".join(warnings)
 
 
 def rviz_config(path, topics, fixed_frame, target_frame):
@@ -299,6 +340,9 @@ def replay_qos(info, topics):
     for item in info["topics_with_message_count"]:
         meta = item["topic_metadata"]
         name = meta["name"]
+        if name == "/tf_static" and name in topics:
+            profiles[name] = STATIC_TF_QOS
+            continue
         if name not in topics or meta["type"] not in DISPLAYS:
             continue
         offers = meta.get("offered_qos_profiles") or []
@@ -393,7 +437,7 @@ def record_job(job, log_root, session, current_session, folder, name, topics, si
     if available_space(folder) < DISK_RESERVE:
         raise ValueError("At least 512 MiB of free disk space is required.")
     env = ros_environment(domain)
-    with exclusive(log_root / "bag-recorder.lock") as lock:
+    with exclusive(log_root / "bag-recorder.lock") as lock, tempfile.TemporaryDirectory(prefix="asurt-record-") as temporary:
         job.state(f"Checking live topics · ROS domain {domain}")
         graph = discover(domain)
         missing = [name for name in topics if not graph.get(name, ("", 0))[1]]
@@ -401,6 +445,12 @@ def record_job(job, log_root, session, current_session, folder, name, topics, si
             missing.append("/clock" if "/clock" in topics else "/clock (simulation time)")
         if missing:
             raise ValueError("No active publisher for " + ", ".join(dict.fromkeys(missing)))
+        support = required_tf(topics, graph)
+        if sim_time and "/clock" not in topics:
+            support += ("/clock",)
+        if support:
+            topics = [*topics, *support]
+            job.log("Recording replay support: " + ", ".join(support))
         active = current_session()
         if not active or active["state"] != session["state"] or live_domain(active) != domain:
             raise ValueError("The simulator session changed. Refresh its topics and try again.")
@@ -412,6 +462,10 @@ def record_job(job, log_root, session, current_session, folder, name, topics, si
                    "-o", destination]
         if sim_time:
             command.append("--use-sim-time")
+        if "/tf_static" in topics:
+            qos_file = Path(temporary) / "record-qos.yaml"
+            qos_file.write_text(yaml.safe_dump({"/tf_static": STATIC_TF_QOS}))
+            command.extend(("--qos-profile-overrides-path", qos_file))
         process = job.start([*command, *topics], env, (lock,))
         try:
             job.state(f"Starting recorder · domain {domain}")
@@ -466,12 +520,16 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
                 if value[1] and (requested is None or name in requested)}
     if not selected:
         raise ValueError("Select at least one topic containing messages or enable All recorded topics.")
+    support = required_tf(selected, details[-1])
+    selected.update((name, details[-1][name]) for name in support)
     duration = details[2].get("duration", {}).get("nanoseconds", 0) / 1e9
     with exclusive(log_root / "bag-player.lock") as play_lock:
         cache_parent = Path("/dev/shm") if ram else log_root
         with tempfile.TemporaryDirectory(prefix="asurt-bag-", dir=cache_parent) as temporary:
             target = Path(temporary)
             job.log(f"Source bag: {details[0]}")
+            if support:
+                job.log("Replaying transforms for RViz: " + ", ".join(support))
             source = stage_bag(details, target, ram, job)
             fixed_frame, target_frame, warning = recorded_frame(source, selected, frame)
             if warning:

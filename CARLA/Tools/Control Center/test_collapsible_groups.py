@@ -48,6 +48,7 @@ class CollapsibleModuleTests(unittest.TestCase):
 
     def cleanup_window(self):
         try:
+            self.root.update_idletasks()
             self.root.destroy()
         except tk.TclError:
             pass
@@ -139,6 +140,31 @@ class CollapsibleModuleTests(unittest.TestCase):
             actions.assert_not_called()
         self.assertEqual(original_states,
                          [m["enabled"] for m in ui.snapshot["modules"]])
+
+    def test_collapsing_a_scrolled_panel_resets_and_hides_scrollbar(self):
+        ui = self.center
+        self.root.geometry("850x560-0-0")
+        self.root.attributes("-alpha", 0.0)
+        self.root.deiconify()
+        ui.populate([module(f"node_{n}", "Perception") for n in range(22)])
+        canvas = ui.items.master
+        scrollbar = next(child for child in canvas.master.winfo_children() if isinstance(child, tk.Scrollbar))
+        self.root.update_idletasks()
+        self.assertEqual(scrollbar.winfo_manager(), "pack")
+        canvas.yview_moveto(1.0)
+        self.assertGreater(canvas.yview()[0], 0.0)
+
+        ui.set_all_sections(False)
+        self.root.update_idletasks()
+        self.assertEqual(canvas.yview(), (0.0, 1.0))
+        self.assertEqual(scrollbar.winfo_manager(), "")
+        canvas.event_generate("<Enter>")
+        canvas.event_generate("<Button-5>")
+        self.assertEqual(canvas.yview(), (0.0, 1.0))
+
+        ui.set_all_sections(True)
+        self.root.update_idletasks()
+        self.assertEqual(scrollbar.winfo_manager(), "pack")
 
     def test_invalid_preferences_fallback_without_changing_module_state(self):
         self.path.write_text('{"groups":{"SLAM":"yes"}}')

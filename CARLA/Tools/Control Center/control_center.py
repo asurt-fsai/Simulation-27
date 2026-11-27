@@ -141,6 +141,7 @@ class ControlCenter:
         expanded = not self.group_expanded.get(group, True)
         self.group_expanded[group] = expanded
         self.show_section(group)
+        self.update_module_scroll()
         self.save_view_state()
 
     def set_all_sections(self, expanded):
@@ -151,6 +152,7 @@ class ControlCenter:
         for ident in self.module_headers:
             self.module_expanded[ident] = bool(expanded)
             self.show_details(ident)
+        self.update_module_scroll()
         self.save_view_state()
 
     def show_section(self, group):
@@ -169,6 +171,7 @@ class ControlCenter:
         expanded = not self.module_expanded.get(ident, True)
         self.module_expanded[ident] = expanded
         self.show_details(ident)
+        self.update_module_scroll()
         self.save_view_state()
 
     def show_details(self, ident):
@@ -215,18 +218,43 @@ class ControlCenter:
         canvas = tk.Canvas(viewer, bg=PANEL, highlightthickness=0)
         scrollbar = tk.Scrollbar(viewer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         self.items = tk.Frame(canvas, bg=PANEL)
         window = canvas.create_window((0, 0), window=self.items, anchor="nw")
-        self.items.bind("<Configure>", lambda _: canvas.configure(
-            scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(
-            window, width=event.width))
+        def update_scroll_region(_event=None):
+            width, height = canvas.winfo_width(), self.items.winfo_reqheight()
+            viewport = canvas.winfo_height()
+            canvas.configure(scrollregion=(0, 0, width, max(height, viewport)))
+            if height > viewport:
+                if not scrollbar.winfo_manager():
+                    scrollbar.pack(before=canvas, side="right", fill="y")
+            else:
+                canvas.yview_moveto(0)
+                scrollbar.pack_forget()
+
+        def sync_scroll_region():
+            # Tk can leave an off-screen canvas window at its previous size
+            # without delivering Configure, even though its requested size changed.
+            canvas.update_idletasks()
+            update_scroll_region()
+
+        self.update_module_scroll = sync_scroll_region
+
+        def resize_view(event):
+            canvas.itemconfigure(window, width=event.width)
+            update_scroll_region()
+
+        self.items.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", resize_view)
+
+        def scroll(units):
+            if scrollbar.winfo_manager():
+                canvas.yview_scroll(units, "units")
+
         def bind_wheel(_event):
-            canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
-            canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-3, "units"))
-            canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(3, "units"))
+            canvas.bind_all("<MouseWheel>", lambda event: scroll(int(-event.delta / 120)))
+            canvas.bind_all("<Button-4>", lambda event: scroll(-3))
+            canvas.bind_all("<Button-5>", lambda event: scroll(3))
 
         def unbind_wheel(_event):
             for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
@@ -337,6 +365,7 @@ class ControlCenter:
             self.module_headers[item["id"]] = (detail_toggle, label)
             self.module_details[item["id"]] = details
             self.show_details(item["id"])
+        self.update_module_scroll()
 
     def refresh(self, *, schedule=True):
         try:
