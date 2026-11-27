@@ -224,7 +224,7 @@ def launch_terminal(root, platform, branch=None, *, add_wslg=False):
         subprocess.Popen(command, stdin=subprocess.DEVNULL, start_new_session=True)
 
 
-def open_channel_settings(parent):
+def open_channel_settings(parent, *, check_now=False):
     import tkinter as tk
     from tkinter import messagebox, ttk
 
@@ -259,11 +259,12 @@ def open_channel_settings(parent):
     def check(_event=None):
         branch = next(key for key, label in CHANNELS.items() if label == choice.get())
         label = CHANNELS[branch]
-        try:
-            select_branch(state, branch)
-        except OSError as error:
-            status.set(f"Could not save the channel: {error}")
-            return
+        if _event is not None:
+            try:
+                select_branch(state, branch)
+            except OSError as error:
+                status.set(f"Could not save the channel: {error}")
+                return
         status.set(f"Checking {label}…")
         choice.configure(state="disabled")
         button.configure(state="disabled")
@@ -288,6 +289,10 @@ def open_channel_settings(parent):
             elif not updates:
                 status.set(f"No new changes on {label}.")
             else:
+                if _event is None and not messagebox.askyesno(
+                        "ASURT updates available", update_details(*updates), parent=window):
+                    status.set(f"Updates available on {label}.")
+                    return
                 try:
                     launch_terminal(Path(os.environ["ASURT_ROOT"]), installed["platform"], branch)
                 except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
@@ -298,9 +303,21 @@ def open_channel_settings(parent):
         Thread(target=fetch, daemon=True).start()
         window.after(100, finish)
 
-    button = ttk.Button(panel, text="Check now", command=check)
+    button = ttk.Button(panel, text="Check for updates", command=check)
     button.grid(row=1, column=1, padx=(8, 0), sticky="w")
     choice.bind("<<ComboboxSelected>>", check)
+    if check_now:
+        window.after_idle(check)
+
+
+def update_details(release, maps):
+    details = [f"New ASURT release {release}"] if release else []
+    if maps:
+        details.append("New or updated maps\n" + "\n".join(f"• {name}" for name in maps[:8]))
+        if len(maps) > 8:
+            details.append(f"Plus {len(maps)-8} more maps")
+    details.append("Download now? ASURT will close its simulator and tools and open the installer in a terminal.")
+    return "\n\n".join(details)
 
 
 def prompt(release, maps):
@@ -310,14 +327,8 @@ def prompt(release, maps):
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-    details = [f"New ASURT release {release}"] if release else []
-    if maps:
-        details.append("New or updated maps\n" + "\n".join(f"• {name}" for name in maps[:8]))
-        if len(maps) > 8:
-            details.append(f"Plus {len(maps)-8} more maps")
-    details.append("Download now? ASURT will close its simulator and tools and open the installer in a terminal.")
     try:
-        if not messagebox.askyesno("ASURT updates available", "\n\n".join(details), parent=root):
+        if not messagebox.askyesno("ASURT updates available", update_details(release, maps), parent=root):
             return False
         try:
             launch_terminal(Path(os.environ["ASURT_ROOT"]), os.environ["ASURT_PROFILE"])

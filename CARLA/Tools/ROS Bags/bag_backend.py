@@ -207,12 +207,13 @@ def stage_bag(details, target, ram, job):
 
 
 def recorded_frame(path, topics, manual):
-    if manual:
-        return manual, ""
     from rclpy.serialization import deserialize_message
     from rosidl_runtime_py.utilities import get_message
     _, _, info, segments, _ = read_bag(path)
     frames = {}
+    edges = {}
+    dynamic_targets = []
+    odom_child = ""
     if info.get("storage_identifier") == "sqlite3" and not info.get("compression_mode"):
         for segment in segments[:2]:
             with closing(sqlite3.connect(segment.as_uri() + "?mode=ro", uri=True)) as db:
@@ -224,32 +225,52 @@ def recorded_frame(path, topics, manual):
                         continue
                     rows = db.execute(
                         "SELECT messages.data FROM messages JOIN topics ON topics.id=messages.topic_id "
-                        "WHERE topics.name=? ORDER BY timestamp LIMIT 3", (topic,))
+                        "WHERE topics.name=? ORDER BY timestamp LIMIT ?", (topic, 32 if topic == "/tf_static" else 3))
                     for (data,) in rows:
                         try:
                             msg = deserialize_message(data, get_message(kind))
                             if kind == "tf2_msgs/msg/TFMessage":
-                                frame = msg.transforms[0].header.frame_id if msg.transforms else ""
+                                for transform in msg.transforms:
+                                    parent = transform.header.frame_id.lstrip("/")
+                                    child = transform.child_frame_id.lstrip("/")
+                                    if parent and child:
+                                        edges.setdefault(parent, set()).add(child)
+                                        edges.setdefault(child, set()).add(parent)
+                                        if topic == "/tf" and child not in dynamic_targets:
+                                            dynamic_targets.append(child)
+                                        frames.setdefault(topic, parent)
+                                continue
                             elif kind == "visualization_msgs/msg/MarkerArray":
                                 frame = msg.markers[0].header.frame_id if msg.markers else ""
                             else:
                                 frame = msg.header.frame_id
+                                if kind == "nav_msgs/msg/Odometry":
+                                    odom_child = msg.child_frame_id.lstrip("/")
                             if frame:
                                 frames[topic] = frame.lstrip("/")
                                 break
                         except (AttributeError, ImportError, RuntimeError, ValueError):
                             break
-    if "/tf" in frames or "/tf_static" in frames:
-        return next((f for t, f in frames.items() if topics[t][0] == "nav_msgs/msg/Odometry"),
-                    frames.get("/tf", frames.get("/tf_static"))), ""
-    frame = next((f for t, f in frames.items() if topics[t][0] != "sensor_msgs/msg/Image"),
-                 next(iter(frames.values()), "map"))
+    clouds = [f for t, f in frames.items() if topics[t][0] in ("sensor_msgs/msg/PointCloud2", "sensor_msgs/msg/LaserScan")]
+    if edges:
+        fixed = manual or next((f for t, f in frames.items() if topics[t][0] == "nav_msgs/msg/Odometry"),
+                               frames.get("/tf", frames.get("/tf_static")))
+        visited, pending = set(), [fixed.lstrip("/")]
+        while pending:
+            current = pending.pop()
+            if current not in visited:
+                visited.add(current)
+                pending.extend(edges.get(current, ()))
+        target = next((f for f in (odom_child, "base_link", *dynamic_targets, *clouds) if f in visited), None)
+        return fixed, target or "<Fixed Frame>", ""
+    frame = manual or next(iter(clouds), None) or next(
+        (f for t, f in frames.items() if topics[t][0] != "sensor_msgs/msg/Image"), next(iter(frames.values()), "map"))
     warning = "No recorded TF. Choose a sensor frame if its display is blank." if any(
         value[0] in DISPLAYS and value[0] != "sensor_msgs/msg/Image" for value in topics.values()) else ""
-    return frame, warning
+    return frame, "<Fixed Frame>", warning
 
 
-def rviz_config(path, topics, fixed_frame):
+def rviz_config(path, topics, fixed_frame, target_frame):
     displays = []
     for topic, (kind, _) in topics.items():
         if plugin := DISPLAYS.get(kind):
@@ -267,8 +288,30 @@ def rviz_config(path, topics, fixed_frame):
               "Visualization Manager": {"Class": "", "Displays": displays, "Enabled": True,
                                         "Global Options": {"Fixed Frame": fixed_frame},
                                         "Tools": [{"Class": "rviz_default_plugins/Interact"}],
-                                        "Views": {"Current": {"Class": "rviz_default_plugins/Orbit", "Distance": 15}}}}
+                                        "Views": {"Current": {"Class": "rviz_default_plugins/Orbit", "Distance": 20,
+                                                               "Target Frame": target_frame}}}}
     path.write_text(yaml.safe_dump(config, sort_keys=False))
+
+
+def replay_qos(info, topics):
+    """Make recorded best-effort display topics compatible with RViz's initial subscriptions."""
+    profiles = {}
+    for item in info["topics_with_message_count"]:
+        meta = item["topic_metadata"]
+        name = meta["name"]
+        if name not in topics or meta["type"] not in DISPLAYS:
+            continue
+        offers = meta.get("offered_qos_profiles") or []
+        if isinstance(offers, str):
+            offers = yaml.safe_load(offers) or []
+        if not isinstance(offers, list) or not any(isinstance(q, dict) and
+                str(q.get("reliability")).lower() in ("2", "best_effort") for q in offers):
+            continue
+        durable = all(isinstance(q, dict) and str(q.get("durability")).lower() in ("1", "transient_local")
+                      for q in offers)
+        profiles[name] = {"reliability": "reliable", "durability": "transient_local" if durable else "volatile",
+                          "history": "keep_last", "depth": 5}
+    return profiles
 
 
 class Job:
@@ -430,14 +473,20 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
             target = Path(temporary)
             job.log(f"Source bag: {details[0]}")
             source = stage_bag(details, target, ram, job)
-            fixed_frame, warning = recorded_frame(source, selected, frame)
+            fixed_frame, target_frame, warning = recorded_frame(source, selected, frame)
             if warning:
                 job.log(warning)
             has_clock = "/clock" in selected
             job.log(f"RViz fixed frame: {fixed_frame}. " +
                     ("Using the bag's recorded clock." if has_clock else "Using wall time (bag has no recorded clock)."))
+            if target_frame != "<Fixed Frame>":
+                job.log(f"RViz view follows {target_frame}.")
             config = target / "replay.rviz"
-            rviz_config(config, selected, fixed_frame)
+            rviz_config(config, selected, fixed_frame, target_frame)
+            qos = replay_qos(details[2], selected)
+            qos_file = target / "replay-qos.yaml"
+            if qos:
+                qos_file.write_text(yaml.safe_dump(qos, sort_keys=False))
             with replay_domain(log_root, current_session) as (domain, domain_lock):
                 job.check_cancel()
                 env = ros_environment(domain)
@@ -451,8 +500,10 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
                                       f"use_sim_time:={'true' if has_clock else 'false'}"], env, locks)
                     # The recorded clock is replayed as-is. Never synthesize a second clock.
                     command = ["ros2", "bag", "play", source, "--start-paused", "--rate", str(rate),
-                               "--disable-keyboard-controls", "--read-ahead-queue-size", "256",
-                               "--topics", *selected]
+                               "--disable-keyboard-controls", "--read-ahead-queue-size", "256"]
+                    if qos:
+                        command.extend(("--qos-profile-overrides-path", qos_file))
+                    command.extend(("--topics", *selected))
                     player = job.start(command, env, locks)
                     with ros_node(domain) as node, ExitStack() as resources:
                         executor = SingleThreadedExecutor(context=node.context)
@@ -464,11 +515,42 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
 
                         def call(name, request):
                             future = services[name].call_async(request)
-                            executor.spin_until_future_complete(future, timeout_sec=2)
-                            if not future.done() or future.result() is None:
-                                services[name].remove_pending_request(future)
-                                raise RuntimeError(f"Player did not answer {name}.")
-                            return future.result()
+                            deadline = time.monotonic() + 8
+                            try:
+                                while not future.done() and player.poll() is None and time.monotonic() < deadline:
+                                    job.check_cancel()
+                                    executor.spin_once(timeout_sec=.2)
+                                if not future.done() or (reply := future.result()) is None:
+                                    raise TimeoutError(f"Player did not confirm {name} yet.")
+                                return reply
+                            finally:
+                                if not future.done():
+                                    services[name].remove_pending_request(future)
+
+                        def change_pause(requested, previous):
+                            name, request = ("pause", Pause.Request()) if requested else ("resume", Resume.Request())
+                            try:
+                                call(name, request)
+                                return requested
+                            except TimeoutError as error:
+                                job.log(str(error))
+                                try:
+                                    return call("is_paused", IsPaused.Request()).paused
+                                except TimeoutError:
+                                    return previous
+
+                        def change_rate(requested, previous):
+                            try:
+                                if call("set_rate", SetRate.Request(rate=requested)).success:
+                                    return requested
+                                job.log(f"The player refused speed {requested:g}×.")
+                            except TimeoutError as error:
+                                job.log(str(error))
+                                try:
+                                    return call("get_rate", GetRate.Request()).rate
+                                except TimeoutError:
+                                    pass
+                            return previous
 
                         deadline = time.monotonic() + 75
                         expected = [topic for topic, (kind, _) in selected.items() if kind in DISPLAYS]
@@ -484,11 +566,7 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
                             if time.monotonic() >= deadline:
                                 raise RuntimeError("Player or RViz topic discovery timed out. Check the playback terminal.")
                             job.stop.wait(.2)
-                        if not start_paused:
-                            call("resume", Resume.Request())
-                        paused = call("is_paused", IsPaused.Request()).paused
-                        if paused != start_paused:
-                            raise RuntimeError("Player did not enter the requested playback state.")
+                        paused = True if start_paused else change_pause(False, True)
                         job.emit("paused", paused)
                         offset, last = 0., time.monotonic()
                         while player.poll() is None:
@@ -503,15 +581,9 @@ def play_job(job, log_root, current_session, path, ram, rate, start_paused, requ
                             while not job.commands.empty():
                                 command, value = job.commands.get_nowait()
                                 if command == "rate":
-                                    if not call("set_rate", SetRate.Request(rate=value)).success:
-                                        job.log(f"The player refused speed {value:g}×.")
-                                    rate = call("get_rate", GetRate.Request()).rate
+                                    rate = change_rate(value, rate)
                                 else:
-                                    requested_pause = command == "pause"
-                                    call(command, Pause.Request() if requested_pause else Resume.Request())
-                                    paused = call("is_paused", IsPaused.Request()).paused
-                                    if paused != requested_pause:
-                                        job.log(f"The player did not confirm {command}.")
+                                    paused = change_pause(command == "pause", paused)
                                     job.emit("paused", paused)
                             job.state(f"{'Paused' if paused else 'Playing'} · {rate:g}× · "
                                       f"~{offset:.1f}/{duration:.1f}s · domain {domain}")

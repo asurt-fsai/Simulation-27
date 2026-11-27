@@ -72,13 +72,17 @@ class ModuleSettings:
         ttk.Button(row, text="Open selected source", command=self.open_source).pack(side="left", padx=(0, 5))
         ttk.Button(row, text="SLAM Settings", command=self.open_slam_settings).pack(side="left", padx=(0, 5))
         ttk.Button(row, text="Autonomous Planner", command=self.open_planner_settings).pack(side="left", padx=(0, 5))
-        if os.environ.get("ASURT_PORTABLE"):
-            from release_update import open_channel_settings
-            ttk.Button(row, text="Update Channel", command=lambda: open_channel_settings(self.window)).pack(
-                side="left", padx=(0, 5))
         if (module_control.ROOT / "bin/dev-build").is_file():
             ttk.Button(row, text="Build and use workspace source", command=self.build).pack(side="left")
             ttk.Label(row, textvariable=self.build_status).pack(side="left", padx=10)
+        if os.environ.get("ASURT_PORTABLE"):
+            from release_update import open_channel_settings
+            updates = ttk.Frame(panel)
+            updates.grid(row=3, columnspan=2, sticky="ew", pady=(6, 0))
+            ttk.Button(updates, text="Update Channel", command=lambda: open_channel_settings(self.window)).pack(
+                side="left", padx=(0, 5))
+            ttk.Button(updates, text="Check for updates", command=lambda: open_channel_settings(
+                self.window, check_now=True)).pack(side="left")
         self.refresh()
 
     def open_planner_settings(self):

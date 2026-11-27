@@ -26,6 +26,8 @@ Mission and controller modules remain opt-in. Use **ASURT CARLA System Manager**
 
 Use **System Manager → Tools → ROS Bags** to record selected live topics into one bag or replay an existing bag with RViz. The tool opens a visible console for recorder and player output. Compressed SQLite bags are expanded into temporary disk or RAM storage for replay. See the [autonomous ROS topic reference](../Tools/RViz/ROS_TOPICS.md) for the active sensor-to-control streams and recording choices.
 
+Use **System Manager → Module Settings → Check for updates** to check the selected channel from an open System Manager. Updates are installed after you accept the prompt.
+
 The bundled VLP-32C uses the `reference` profile at 600,000 rays per simulated second. An explicit `ASURT_VELODYNE_PROFILE` still selects the requested density.
 
 On native Ubuntu, the installer and launcher check for a working dedicated Vulkan GPU. The launcher uses the verified driver for the CARLA server. It honors explicit Vulkan or PRIME settings and uses the system Vulkan default when it cannot isolate a dedicated GPU. The installer prints the selected renderer.
