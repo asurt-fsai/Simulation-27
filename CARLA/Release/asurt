@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 set -eo pipefail
+# A desktop MCP host can omit HOME. The native CARLA client requires it at import.
+if [[ ${1:-} == mcp && -z ${HOME:-} ]]; then
+    unset HOME
+    account_home=~
+    if [[ "$account_home" != /* || ! -d "$account_home" ]]; then
+        printf '%s\n' 'ASURT MCP could not resolve the home directory of the current account.' >&2
+        exit 1
+    fi
+    export HOME="$account_home"
+fi
 root="${ASURT_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 export ASURT_ROOT="$root"
 export ASURT_WORKSPACE="${ASURT_WORKSPACE:-${root%/*}/workspace}"
