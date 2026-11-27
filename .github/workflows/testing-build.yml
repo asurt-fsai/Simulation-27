@@ -38,7 +38,7 @@ jobs:
           python3 CARLA/Release/build_channel_release.py --branch testing --tag "$tag" --output "$out" \
             --base-manifest "$base/asurt-release.json" --base-patch "$base/ASURT-Editable-Workspace.tar.gz"
           printf '%s\n' "Testing build from commit $GITHUB_SHA." \
-            "Uses the same [FlatAsphalt runtimes and Silverstone Split map pack](https://github.com/$GITHUB_REPOSITORY/releases/tag/v0.1.25-flat) as Release." >"$out/notes.md"
+            "Uses the same FlatAsphalt runtimes and Silverstone Split map pack as [Release](https://github.com/$GITHUB_REPOSITORY/releases/tag/$stable)." >"$out/notes.md"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isDraft >"$out/release-state.json" 2>/dev/null; then
             if [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["isDraft"])' "$out/release-state.json") == False ]]; then
               exit 0

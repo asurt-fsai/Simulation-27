@@ -11,8 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "Simulator/Launchers"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]
                        / "Modules/Perception/Adapters/CARLA/Camera/asurt_zed2i_sim"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]
+                       / "Modules/Perception/Adapters/CARLA/LiDAR/asurt_velodyne_sim"))
 import weather_control as gui
-from asurt_zed2i_sim.weather import WeatherEffects, road_wetness
+from asurt_velodyne_sim.weather import WeatherReturns
+from asurt_zed2i_sim.weather import WeatherEffects
 from road_weather import RoadWeather, rain_cloud_cover, road_conditions
 from weather_grip import dry_grip_multiplier, grip_multiplier
 
@@ -126,11 +129,30 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(heavy_water, 10)
         self.assertEqual(conditions[("heavy_rain", True)], (light, light_water))
 
-    def test_camera_reflections_follow_surface_water(self):
-        weather = SimpleNamespace(precipitation=85, wetness=0, precipitation_deposits=0)
-        self.assertEqual(road_wetness(weather), 0)
-        weather.wetness = 25
-        self.assertEqual(road_wetness(weather), 0.25)
+    def test_wetness_and_visibility_are_rendered_before_camera_processing(self):
+        effects = WeatherEffects(glare_scale=0, noise_std=0)
+        weather = SimpleNamespace(wetness=90, precipitation_deposits=40, fog_density=90, dust_storm=50)
+        image = np.random.default_rng(0).integers(0, 256, (180, 320, 3), dtype=np.uint8)
+        np.testing.assert_array_equal(effects.process(image, weather, 0, 0, 1, 0), image)
+
+    def test_velodyne_rain_loses_weak_targets_and_adds_small_radial_noise(self):
+        # Two ranges and bearings let us distinguish scatter from true targets.
+        near = np.tile(np.array([8, 6, 0, 0.3], dtype=np.float32), (25_000, 1))
+        far = np.tile(np.array([30, 0, 40, 0.1], dtype=np.float32), (25_000, 1))
+        cloud = np.concatenate((near, far))
+        weather = lambda precipitation: WeatherReturns.from_world(SimpleNamespace(precipitation=precipitation))
+        self.assertIs(weather(0).apply(cloud, 17), cloud)
+        light, heavy = (weather(rain).apply(cloud, 17) for rain in (15, 90))
+        light_near, heavy_near = (scan[scan[:, 1] > 5] for scan in (light, heavy))
+        self.assertGreater(len(heavy_near), len(near) * 0.9)
+        self.assertLess(np.count_nonzero(heavy[:, 2] > 30), np.count_nonzero(light[:, 2] > 30))
+        self.assertLess(np.median(heavy_near[:, 3]), np.median(light_near[:, 3]))
+        self.assertGreater(heavy_near[:, 0].std(), light_near[:, 0].std() * 3)
+        self.assertLess(np.abs(heavy_near[:, 0] - 8).max(), 0.12)
+        np.testing.assert_allclose(heavy_near[:, 0] * 0.75, heavy_near[:, 1], atol=1e-6)
+        scatter = (heavy[:, 1] == 0) & (heavy[:, 2] < 16)
+        self.assertGreater(np.count_nonzero(scatter), 0)
+        self.assertLess(np.count_nonzero(scatter), len(cloud) * 0.001)
 
     def test_camera_droplets_persist_after_rain_and_dry_faster_in_the_sun(self):
         clear = SimpleNamespace(precipitation=0, cloudiness=0, sun_altitude_angle=70)

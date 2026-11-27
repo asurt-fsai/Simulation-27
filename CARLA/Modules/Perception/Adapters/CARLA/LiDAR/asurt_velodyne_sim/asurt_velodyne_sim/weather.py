@@ -1,4 +1,4 @@
-"""Approximate extra optical loss and backscatter for a Velodyne scan."""
+"""Approximate optical loss, range noise and backscatter for a Velodyne scan."""
 
 from dataclasses import dataclass
 
@@ -9,6 +9,7 @@ import numpy as np
 class WeatherReturns:
     two_way_extinction: float = 0.0
     clutter_rate: float = 0.0
+    rain: float = 0.0
 
     @classmethod
     def from_world(cls, weather):
@@ -18,8 +19,13 @@ class WeatherReturns:
         )
         if max(fog, dust) < 0.05 and rain == 0.0:
             return cls()
-        return cls(two_way_extinction=0.012 * rain + 0.085 * fog**2 + 0.030 * dust**2,
-                   clutter_rate=0.004 * rain**2 + 0.003 * fog**2 + 0.006 * dust**2)
+        # The CARLA slider is relative intensity, so these coefficients are
+        # tuned to its range. See Goodin et al. (10.3390/electronics8010089)
+        # for range-dependent attenuation and Choe et al. (10.3390/s24010014)
+        # for intensity and point-count measurements on a VLP-32.
+        return cls(two_way_extinction=0.012 * rain**0.85 + 0.085 * fog**2 + 0.030 * dust**2,
+                   clutter_rate=0.003 * fog**2 + 0.006 * dust**2,
+                   rain=rain)
 
     def apply(self, points, timestamp):
         if self.two_way_extinction == 0.0 or not len(points):
@@ -33,19 +39,35 @@ class WeatherReturns:
         weak = 1.0 - np.clip(intensities / 0.12, 0.0, 1.0)
         loss = (1.0 - transmission) * (0.15 + 0.85 * weak)
         rng = np.random.default_rng(int(round(timestamp * 1_000_000)))
-        keep = rng.random(len(points), dtype=np.float32) >= loss
+        detected = rng.random(len(points), dtype=np.float32) >= loss
 
-        # A particle can win the single-return range bin. Reuse real ray
-        # directions to avoid inventing arbitrary points between beams.
-        scatter = (distances > 4.0) & (
-            rng.random(len(points), dtype=np.float32) < self.clutter_rate)
-        keep |= scatter
+        # With one return per beam, weak particle echoes usually lose to a
+        # solid target. See Montalban et al. (10.3390/atmos12060738), §6.3.
+        chance = self.clutter_rate + (0.0009 * self.rain**1.6) * weak * np.minimum(distances / 20.0, 1.0)
+        scatter = (distances > 4.0) & (rng.random(len(points), dtype=np.float32) < chance)
+        keep = detected | scatter
         result = points[keep]
         result[:, 3] = intensities[keep]
+
+        if self.rain:
+            # Centimetre-scale timing error grows at low signal; move each
+            # return along its original beam. CARLA supplies the dry noise.
+            distance = distances[keep]
+            noise = rng.standard_normal(len(result), dtype=np.float32)
+            sigma_m = self.rain * (0.008 + 0.032 * weak[keep])
+            offset = np.clip(sigma_m * noise, -0.12, 0.12)
+            result[:, :3] *= (1.0 + offset / np.maximum(distance, 0.25))[:, None]
+            noise = rng.standard_normal(len(result), dtype=np.float32)
+            result[:, 3] *= 1.0 + 0.07 * self.rain * np.clip(noise, -3.0, 3.0)
+
         replaced = scatter[keep]
         count = np.count_nonzero(replaced)
-        scatter_distance = rng.uniform(2.0, 20.0, count)
-        scale = np.minimum(scatter_distance / distances[scatter], 0.9)
-        result[replaced, :3] *= scale[:, None]
-        result[replaced, 3] = rng.uniform(0.01, 0.06, count)
+        if count:
+            distance = distances[scatter]
+            limit = np.minimum(0.9 * distance, 20.0)
+            # Near-field backscatter falls off quickly with distance.
+            u = rng.random(count, dtype=np.float32)
+            scatter_distance = 2.0 - 6.0 * np.log1p(u * np.expm1((2.0 - limit) / 6.0))
+            result[replaced, :3] = xyz[scatter] * (scatter_distance / distance)[:, None]
+            result[replaced, 3] = rng.uniform(0.005, 0.035, count)
         return result

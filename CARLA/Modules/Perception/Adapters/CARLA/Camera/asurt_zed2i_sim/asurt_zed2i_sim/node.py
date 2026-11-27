@@ -31,7 +31,7 @@ from .optics import Calibration
 from .overlay_sync import next_overlay_frame
 from .stereo_sync import StereoSynchronizer
 from .tracking import ConeTracker
-from .weather import WeatherEffects, camera_ground_plane, decode_scene_depth, needs_scene_depth
+from .weather import WeatherEffects
 
 
 def load_carla():
@@ -138,8 +138,6 @@ class Zed2iStereoNode(Node):
         self.camera_yaw = 0.0
         self.camera_pitch = 0.0
         self.actors = {}
-        self.depth_actors = {}
-        self.depth_frames = {"left": {}, "right": {}}
         self.destroyed = False
         self.received_pairs = 0
         self.tracker = ConeTracker()
@@ -405,33 +403,8 @@ class Zed2iStereoNode(Node):
             transform = self.actors["left"].get_transform()
             self.camera_yaw = transform.rotation.yaw
             self.camera_pitch = transform.rotation.pitch
-            depth_needed = self.effects.enabled and needs_scene_depth(self.weather)
-            if depth_needed and not self.depth_actors:
-                self.start_depth_cameras()
-            elif not depth_needed and self.depth_actors:
-                self.stop_depth_cameras()
         except RuntimeError as exc:
             self.get_logger().warning(f"Weather/pose query failed: {exc}", throttle_duration_sec=10.0)
-
-    def start_depth_cameras(self):
-        blueprint = self.world.get_blueprint_library().find("sensor.camera.depth")
-        settings = {
-            "image_size_x": str(self.cal.width),
-            "image_size_y": str(self.cal.height),
-            "fov": str(self.cal.hfov_deg),
-            "sensor_tick": str(1.0 / max(1.0, self.p["sensor_rate_hz"])),
-        }
-        for attr, value in settings.items():
-            blueprint.set_attribute(attr, value)
-        try:
-            for eye, sign in (("left", -1.0), ("right", 1.0)):
-                blueprint.set_attribute("role_name", f"asurt_zed2i_sim_depth_{eye}")
-                actor = self.world.spawn_actor(blueprint, self.camera_mount(sign), attach_to=self.hero)
-                self.depth_actors[eye] = actor
-                actor.listen(lambda img, e=eye, ident=actor.id: self.on_depth(e, ident, img))
-        except RuntimeError:
-            self.stop_depth_cameras()
-            raise
 
     def camera_mount(self, sign):
         # CARLA y right, ROS base_link y left. Cameras parallel & rectified.
@@ -441,42 +414,6 @@ class Zed2iStereoNode(Node):
                                 z=self.cal.mount_z),
             self.carla.Rotation(pitch=self.p["mount_pitch_deg"], yaw=self.p["mount_yaw_deg"]),
         )
-
-    def on_depth(self, eye, actor_id, image):
-        depth = decode_scene_depth(image)
-        plane = camera_ground_plane(image.transform, self.hero.get_location().z)
-        with self.lock:
-            actor = self.depth_actors.get(eye)
-            if actor is None or actor.id != actor_id:
-                return
-            frames = self.depth_frames[eye]
-            frames[image.frame] = (image.timestamp, depth, plane)
-            if len(frames) > 8:
-                del frames[min(frames)]
-
-    def scene_depth(self, eye, frame, timestamp):
-        with self.lock:
-            frames = self.depth_frames[eye]
-            if not frames:
-                return None, None
-            closest = min(frames, key=lambda key: abs(key - frame))
-            captured, depth, plane = frames[closest]
-            if abs(captured - timestamp) <= 0.20:
-                return depth, plane
-        return None, None
-
-    def stop_depth_cameras(self):
-        with self.lock:
-            actors = self.depth_actors.copy()
-            self.depth_actors.clear()
-            for frames in self.depth_frames.values():
-                frames.clear()
-        for eye, actor in actors.items():
-            try:
-                actor.stop()
-                actor.destroy()
-            except RuntimeError as exc:
-                self.get_logger().warning(f"Failed to remove {eye} depth camera: {exc}")
 
     def info_for(self, eye, stamp):
         c = self.cal
@@ -495,10 +432,9 @@ class Zed2iStereoNode(Node):
 
     def process_eye(self, eye, sample):
         frame, bgr, timestamp, _ = sample
-        depth, plane = self.scene_depth(eye, frame, timestamp)
         return self.effects.process(
             bgr, self.weather, self.camera_yaw, self.camera_pitch, frame,
-            0 if eye == "left" else 1, self.cal.hfov_deg, depth, plane, timestamp=timestamp,
+            0 if eye == "left" else 1, self.cal.hfov_deg, timestamp=timestamp,
         )
 
     def process_left(self, sample):
@@ -704,7 +640,6 @@ class Zed2iStereoNode(Node):
         if self.destroyed:
             return
         self.destroyed = True
-        self.stop_depth_cameras()
         if self.detection_pool is not None:
             # Drain at most one active inference before releasing publishers
             # and owned sensor actors. This does not affect the CARLA ticker.
