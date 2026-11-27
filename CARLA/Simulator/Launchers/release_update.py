@@ -200,7 +200,8 @@ def terminal_command(root, platform, branch=None, *, add_wslg=False):
             raise ValueError("Invalid WSL distribution name.")
         arguments = subprocess.list2cmdline(["-d", distro, "--", *command])
         quoted = "'" + arguments.replace("'", "''") + "'"
-        script = ("$ErrorActionPreference='Stop'; Start-Process -FilePath wsl.exe "
+        script = ("$ErrorActionPreference='Stop'; $wsl=Join-Path ([Environment]::SystemDirectory) 'wsl.exe'; "
+                  "Start-Process -FilePath $wsl "
                   f"-ArgumentList {quoted} -WindowStyle Normal")
         encoded = base64.b64encode(script.encode("utf-16-le")).decode()
         return [powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
@@ -415,6 +416,7 @@ def main():
         command = installer_command(root, state, installed, branch, add_wslg=add_wslg)
         print("Closing the ASURT simulator and tools before updating…", flush=True)
         stop_for_update()
+        print("Starting the ASURT installer…", flush=True)
         result = subprocess.call(command)
         if result:
             print(f"The installer exited with code {result}.", file=sys.stderr)

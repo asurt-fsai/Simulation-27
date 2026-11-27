@@ -19,7 +19,7 @@ import carla
 import yaml
 
 from map_packs import catalog as map_catalog, check_base as check_map_base, install as install_map
-from process_ownership import process_start, recover_orphaned_processes
+from process_ownership import process_start, recover_orphaned_processes, stop_processes, wait_for_session_lock
 from road_weather import RoadWeather
 from weather_grip import WeatherGrip
 from windows_interop import powershell_exe
@@ -170,16 +170,7 @@ def wake_novnc():
 
 
 def stop_process(proc):
-    if proc.poll() is not None:
-        return
-    for sig, wait in ((signal.SIGINT, 10), (signal.SIGTERM, 8), (signal.SIGKILL, 5)):
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, sig)
-        try:
-            proc.wait(timeout=wait)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    stop_processes((proc,))
 
 
 def run_windows(action, runtime, identity="", *, map_path=MAPS["flat-asphalt"]):
@@ -427,6 +418,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
         windows_identity = ""
         windows_probe_after = 0.0
         windows_runtime = ""
+        shutting_down = False
 
         def start(name, args, *, environment=env):
             with (run_dir / f"{name}.log").open("ab") as output:
@@ -515,7 +507,17 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                                 stop_process(processes[name])
 
         def shutdown(_sig, _frame):
-            raise KeyboardInterrupt
+            nonlocal shutting_down
+            if not shutting_down:
+                shutting_down = True
+                raise KeyboardInterrupt
+
+        def mark_stopping():
+            nonlocal shutting_down
+            shutting_down = True
+            if session["phase"] not in ("failed", "stopping"):
+                session["phase"] = "stopping"
+                record_session(session)
 
         for sig in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, shutdown)
@@ -655,9 +657,13 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                     report_failure(exc)
                     raise
                 finally:
-                    for name, proc in reversed(tuple(processes.items())):
-                        if name != "server":
-                            stop_process(proc)
+                    mark_stopping()
+                    if "driving" in processes:
+                        stop_process(processes["driving"])
+                    stop_processes(proc for name, proc in reversed(tuple(processes.items()))
+                                   if name not in ("server", "bridge", "driving"))
+                    if "bridge" in processes:
+                        stop_process(processes["bridge"])
         except KeyboardInterrupt:
             print("ASURT stopped.", flush=True)
         except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as exc:
@@ -666,6 +672,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
             raise
         finally:
             try:
+                mark_stopping()
                 recover_orphaned_processes(LOG_ROOT, run_dir=run_dir)
             finally:
                 session_file().unlink(missing_ok=True)
@@ -806,16 +813,10 @@ def run_session_tool(cmd, env, output, state, action):
 
 def stop_for_update():
     active = running_session()
-    if active:
+    if active and active["phase"] not in ("stopping", "failed") and process_start(active["pid"]) == active["start"]:
         with contextlib.suppress(ProcessLookupError):
             os.kill(active["pid"], signal.SIGTERM)
-        deadline = time.monotonic() + 45
-        while (current := running_session()) is not None:
-            if current["state"] != active["state"]:
-                raise RuntimeError("A different simulator session started during shutdown.")
-            if time.monotonic() >= deadline:
-                raise TimeoutError("The ASURT simulator is still shutting down.")
-            time.sleep(.25)
+    wait_for_session_lock(LOG_ROOT, active, running_session)
 
     def owned_tools(*, bag_windows=False):
         for path in (LOG_ROOT / "tools/running").glob("*.json"):
@@ -836,10 +837,15 @@ def stop_for_update():
     for pid in owned_tools(bag_windows=True):
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGTERM)
-    deadline = time.monotonic() + 45
+    deadline = time.monotonic() + 600
+    next_notice = time.monotonic()
     while list(owned_tools(bag_windows=True)):
-        if time.monotonic() >= deadline:
-            raise RuntimeError("ROS Bags is still finalizing. Wait for it to finish before updating.")
+        now = time.monotonic()
+        if now >= deadline:
+            raise TimeoutError("ROS Bags still holds a recording after ten minutes of finalization.")
+        if now >= next_notice:
+            print("Waiting for ROS Bags to finish finalizing…", flush=True)
+            next_notice = now + 15
         time.sleep(.25)
 
     for sig, grace in ((signal.SIGINT, 4), (signal.SIGTERM, 4), (signal.SIGKILL, 2)):

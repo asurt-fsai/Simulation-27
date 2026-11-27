@@ -21,10 +21,12 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString
 $local=$Manifest -and $Manifest -notmatch '^https://'
 if ($local) { $Manifest=(Resolve-Path -LiteralPath $Manifest).ProviderPath }
 
-$wslPath=Join-Path $env:SystemRoot 'System32/wsl.exe'
+$systemDirectory=Join-Path $env:SystemRoot 'System32'
 if ([Environment]::Is64BitOperatingSystem -and ![Environment]::Is64BitProcess) {
-    $wslPath=Join-Path $env:SystemRoot 'Sysnative/wsl.exe'
+    $systemDirectory=Join-Path $env:SystemRoot 'Sysnative'
 }
+$wslPath=Join-Path $systemDirectory 'wsl.exe'
+$windowsPowerShell=Join-Path $systemDirectory 'WindowsPowerShell/v1.0/powershell.exe'
 
 function Invoke-AsurtWsl {
     $output=(& $wslPath @args 2>$null | Out-String) -replace "\x00",''
@@ -45,7 +47,7 @@ if (!$entries -and !$wslStatus) {
         Write-Host 'Enabling WSL and Virtual Machine Platform.'
         $enable='$ErrorActionPreference="Stop"; Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux,VirtualMachinePlatform -All -NoRestart | Out-Null'
         $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($enable))
-        $bootstrap=Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+        $bootstrap=Start-Process -FilePath $windowsPowerShell -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
     }
     if ($bootstrap.ExitCode -notin 0,3010) { throw "WSL setup returned $($bootstrap.ExitCode). Check Windows virtualization and Windows Update." }
     if ($bootstrap.ExitCode -eq 3010 -or !(Test-Path -LiteralPath $wslPath) -or
@@ -178,7 +180,7 @@ if (!$SkipFirewall -and $networkMode -ne 'mirrored') {
             $command=('$ErrorActionPreference="Stop"; $old=Get-NetFirewallRule -Name ''{0}'' -ErrorAction SilentlyContinue; if ($old) {{ $old | Remove-NetFirewallRule }}; New-NetFirewallRule -Name ''{0}'' -DisplayName ''ASURT CARLA from WSL'' -Direction Inbound -Action Allow -Program ''{1}'' -RemoteAddress ''{2}'' -Protocol TCP -LocalPort 2100,2101,2102 | Out-Null' -f $rule,$escapedGame,$addr)
             $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
             try {
-                $firewall=Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+                $firewall=Start-Process -FilePath $windowsPowerShell -ArgumentList '-NoProfile','-EncodedCommand',$encoded -Verb RunAs -WindowStyle Hidden -Wait -PassThru
                 if ($firewall.ExitCode -ne 0) { throw "Firewall setup returned $($firewall.ExitCode)." }
             } catch {
                 Write-Warning 'Shortcuts will be installed. Rerun the installer and approve the firewall prompt if Native Windows cannot connect.'
