@@ -36,11 +36,17 @@ def copy_changed_files(reference, overlay):
             builder.copy_driving_window(overlay)
             continue
         if (len(path.parts) == 9 and path.parts[:5] == ("CARLA", "Modules", "Perception", "Adapters", "CARLA")
-                and path.parts[6] == path.parts[7]
                 and builder.PYTHON_ADAPTERS.get(path.parts[6]) == path.parts[5]
-                and path.name in ("node.py", "weather.py") and status in ("A", "M")):
-            builder.copy_python_adapter_file(path.parts[6], path.name, overlay)
-            continue
+                and status in ("A", "M")):
+            package = path.parts[6]
+            supported = path.name in ("node.py", "weather.py") or (
+                package == "asurt_velodyne_sim" and path.name == "ultra_puck.py")
+            if path.parts[7] == package and supported:
+                builder.copy_python_adapter_file(package, path.name, overlay)
+                continue
+            if path.parts[7] == "tests" and path.name.startswith("test_") and path.suffix == ".py":
+                builder.copy(builder.REPOSITORY / path, overlay / builder.PERCEPTION / path.relative_to("CARLA/Modules/Perception"))
+                continue
         if path.parts[:2] == ("CARLA", "Modules") or path.parts[:3] == ("CARLA", "Simulator", "Bridge"):
             raise ValueError(f"{name} requires updated compiled ROS overlays from a full release build.")
         if path.parts[:2] in (("CARLA", "Tools"), ("CARLA", "Assets")):

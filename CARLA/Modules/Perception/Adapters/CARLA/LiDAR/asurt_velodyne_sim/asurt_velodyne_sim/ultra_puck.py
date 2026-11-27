@@ -1,7 +1,6 @@
 """Nominal VLP-32C scan geometry from Ouster's Rev D manual, table 9-2."""
 
 import math
-from collections import defaultdict
 
 # (Elevation, clockwise azimuth offset), indexed by hardware laser ID.
 VLP32C_BEAMS = (
@@ -17,19 +16,17 @@ VLP32C_BEAMS = (
 
 
 def beam_banks():
-    """Pack one or two equal-azimuth beams into each stock CARLA actor.
+    """Pack the calibrated beams into 14 stock CARLA actors.
 
-    CARLA interpolates elevation evenly between its limits. With at most
-    two beams per actor the specified elevations remain exact.
+    Each group uses one azimuth and evenly spaced elevations, so CARLA's
+    interpolation reproduces every beam in the calibration table.
     """
-    by_offset = defaultdict(list)
-    for elevation, offset in VLP32C_BEAMS:
-        by_offset[offset].append(elevation)
-    return tuple(
-        (offset, tuple(elevations[first:first + 2]))
-        for offset, elevations in sorted(by_offset.items())
-        for first in range(0, len(elevations), 2)
-    )
+    groups = ((12, 14), (20, 28, 6),
+              (0, 4), (8, 16), (24, 2), (10, 18, 22), (26, 30),
+              (3, 7), (11, 15), (23, 21), (31, 5, 13), (25, 29),
+              (19, 17), (27, 1, 9))
+    return tuple((VLP32C_BEAMS[ids[0]][1], tuple(VLP32C_BEAMS[i][0] for i in ids))
+                 for ids in groups)
 
 
 def rotate_to_sensor(points, clockwise_yaw):
