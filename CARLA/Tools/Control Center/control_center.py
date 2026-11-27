@@ -13,13 +13,17 @@ from tkinter import messagebox
 
 ROOT = Path(os.environ.get("ASURT_ROOT", Path(__file__).resolve().parents[2]))
 LAUNCH = ROOT / "Simulation/CARLA/Launchers" if os.environ.get("ASURT_PORTABLE") else Path("/mnt/e/ASURT/Simulation/CARLA/Launchers")
-sys.path[:0] = [str(ROOT / "tools/RViz"), str(LAUNCH)]
+RVIZ = ROOT / "tools/RViz"
+BUNDLED_RVIZ = ROOT / "libexec/asurt-stock-tools/RViz"
+if os.environ.get("ASURT_PORTABLE") and BUNDLED_RVIZ.is_dir():
+    RVIZ = BUNDLED_RVIZ
+sys.path[:0] = [str(RVIZ), str(LAUNCH)]
 import module_control
 from module_settings import ModuleSettings
 from session import (LOG_ROOT, MAP_LABELS, PROFILES, RVIZ_PRESETS, SESSION_REQUIRED_TOOLS,
                      last_session_failure, launch_error, running_session)
 
-MANAGER = ROOT / "tools/RViz/manage.py"
+MANAGER = RVIZ / "manage.py"
 VIEW_STATE = module_control.CONFIG / "control-center-view.json"
 TOOLS = {
     "Perception": "rviz",
@@ -51,7 +55,16 @@ FG, DIM, TEAL, GREEN, GOLD = "#f3f6fb", "#b0bed1", "#75dae8", "#65d2a7", "#f5b87
 class ControlCenter:
     def __init__(self, root):
         self.root = root
-        root.title("CARLA System Manager")
+        title = "CARLA System Manager"
+        if os.environ.get("ASURT_PORTABLE"):
+            from release_update import receipt
+            try:
+                installed = receipt(Path(os.environ["ASURT_STATE_ROOT"]))
+            except (KeyError, OSError, ValueError):
+                installed = None
+            if installed and installed.get("tag"):
+                title += f" · {installed['tag']}"
+        root.title(title)
         root.geometry("950x740")
         root.minsize(760, 540)
         root.configure(bg=BG)

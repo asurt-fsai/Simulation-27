@@ -11,6 +11,26 @@ from asurt_update import activate, enable_dynamic_prop_sensor_trace, seed_worksp
 
 
 class WorkspaceUpgradeTest(unittest.TestCase):
+    def test_packaged_manager_updates_even_with_an_edited_workspace_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entrypoint = Path("Control Center/control_center.py")
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}):
+                for name in ("first", "second"):
+                    stack = root / "stacks" / name
+                    path = stack / "tools" / entrypoint
+                    path.parent.mkdir(parents=True)
+                    path.write_text(name)
+                    install = root / "installations" / name
+                    install.mkdir(parents=True)
+                    seed_workspace(root, stack, install)
+                    activate(install, root / "current")
+                    if name == "first":
+                        (root / "workspace/tools" / entrypoint).write_text("local manager edits")
+                current = root / "current"
+                self.assertEqual((current / "libexec/asurt-stock-tools" / entrypoint).read_text(), "second")
+                self.assertEqual((current / "tools" / entrypoint).read_text(), "local manager edits")
+
     def test_dynamic_props_keep_other_collision_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

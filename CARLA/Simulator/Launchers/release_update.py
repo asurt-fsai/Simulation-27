@@ -188,6 +188,7 @@ def check_updates(state, *, branch=None, strict=False):
 
 def terminal_command(root, platform, branch=None, *, add_wslg=False):
     command = ["/bin/bash", str(root / "bin/asurt"), "exec", "/usr/bin/python3", str(Path(__file__).resolve())]
+    command.append("--reopen-manager")
     if branch:
         command.extend(("--channel", branch))
     if add_wslg:
@@ -406,7 +407,7 @@ def main():
         branch = None
         args = sys.argv[1:]
         add_wslg = "--add-wslg" in args
-        plain = [arg for arg in args if arg != "--add-wslg"]
+        plain = [arg for arg in args if arg not in ("--add-wslg", "--reopen-manager")]
         if plain:
             if len(plain) != 2 or plain[0] != "--channel" or plain[1] not in CHANNELS:
                 raise ValueError("Invalid installer channel request.")
@@ -420,6 +421,16 @@ def main():
         result = subprocess.call(command)
         if result:
             print(f"The installer exited with code {result}.", file=sys.stderr)
+        elif "--reopen-manager" in args:
+            launcher = state.parent / "current/bin/asurt"
+            env = dict(os.environ)
+            env.pop("ASURT_ROOT", None)
+            try:
+                subprocess.Popen(["/bin/bash", launcher, "manager"], env=env,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as error:
+                print(f"The update installed. Could not reopen System Manager: {error}", file=sys.stderr)
         return result
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"ASURT update: {error}", file=sys.stderr)

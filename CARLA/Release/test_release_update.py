@@ -196,6 +196,25 @@ class ReleaseUpdateTest(unittest.TestCase):
             self.assertEqual(update.run_manager(["manager"]), 0)
             manager.terminate.assert_called_once()
 
+    def test_update_reopens_the_current_manager_after_success(self):
+        active = self.root / "installations/old"
+        env = {"ASURT_ROOT": str(active), "ASURT_STATE_ROOT": str(self.state)}
+        for code in (0, 1):
+            with self.subTest(code=code), patch.dict("os.environ", env), \
+                 patch.dict(sys.modules, {"session": SimpleNamespace(stop_for_update=lambda: None)}), \
+                 patch.object(sys, "argv", ["release_update.py", "--reopen-manager", "--channel", "testing"]), \
+                 patch("release_update.receipt", return_value={"platform": "linux"}), \
+                 patch("release_update.installer_command", return_value=["install"]), \
+                 patch("release_update.subprocess.call", return_value=code), \
+                 patch("release_update.subprocess.Popen") as reopen:
+                self.assertEqual(update.main(), code)
+                if code:
+                    reopen.assert_not_called()
+                else:
+                    self.assertEqual(reopen.call_args.args[0],
+                                     ["/bin/bash", self.root / "current/bin/asurt", "manager"])
+                    self.assertNotIn("ASURT_ROOT", reopen.call_args.kwargs["env"])
+
     def test_ros_bags_entry_preserves_edited_manager(self):
         manager = self.root / "control_center.py"
         original = (b'# local change\r\nTOOLS = {\r\n    "Map Packs": "map-packs",\r\n'

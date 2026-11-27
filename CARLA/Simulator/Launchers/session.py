@@ -744,9 +744,14 @@ def tool(profile, action, arguments, expected_session=None):
     elif action == "cancel-goal":
         cmd = ["bash", tool_path(action, TOOLS / "RViz/cancel_goal.sh")]
     elif action == "manager":
-        cmd = [PYTHON, tool_path(action, TOOLS / "Control Center/control_center.py")]
         if os.environ.get("ASURT_PORTABLE"):
-            cmd = [PYTHON, LAUNCH / "release_update.py", "--manager", *cmd]
+            installed = ROOT.resolve()
+            bundled = installed / "libexec/asurt-stock-tools/Control Center/control_center.py"
+            default = bundled if bundled.is_file() else installed / "tools/Control Center/control_center.py"
+            window_env["ASURT_ROOT"] = str(installed)
+            cmd = [PYTHON, LAUNCH / "release_update.py", "--manager", PYTHON, tool_path(action, default)]
+        else:
+            cmd = [PYTHON, tool_path(action, TOOLS / "Control Center/control_center.py")]
     elif action == "map-packs":
         cmd = [PYTHON, tool_path(action, LAUNCH / "map_pack_panel.py")]
     elif action == "ros-bags":

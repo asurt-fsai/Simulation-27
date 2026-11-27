@@ -268,7 +268,10 @@ def close_previous_manager(current, previous):
     """Release the packaged manager's window lock after activating a different release."""
     relative = Path("tools/Control Center/control_center.py")
     roots = {os.fsencode(current), os.fsencode(previous)}
-    entrypoints = {os.fsencode(current / relative), os.fsencode(previous / relative)}
+    entrypoints = {
+        os.fsencode(current / relative), os.fsencode(previous / relative),
+        os.fsencode(previous / "libexec/asurt-stock-tools/Control Center/control_center.py"),
+    }
     for process in Path("/proc").iterdir():
         if not process.name.isdecimal():
             continue
@@ -340,6 +343,10 @@ def seed_workspace(root, stack, installation):
         if prefix and (root / "stacks").is_dir():
             previous = next((path for path in (root / "stacks").iterdir()
                              if path.name.startswith(prefix[0])), None)
+    if (stack / "tools").is_dir():
+        bundled_tools = installation / "libexec/asurt-stock-tools"
+        bundled_tools.parent.mkdir(exist_ok=True)
+        activate(stack / "tools", bundled_tools)
     updated = {}
     for relative in workspace_paths(stack):
         source = stack / relative

@@ -27,6 +27,7 @@ Mission and controller modules remain opt-in. Use **ASURT CARLA System Manager**
 Use **System Manager → Tools → ROS Bags** to record selected live topics into one bag or replay an existing bag with RViz. The tool opens a visible console for recorder and player output. Compressed SQLite bags are expanded into temporary disk or RAM storage for replay. See the [autonomous ROS topic reference](../Tools/RViz/ROS_TOPICS.md) for the active sensor-to-control streams and recording choices.
 
 Use **System Manager → Module Settings → Check for updates** to check the selected channel from an open System Manager. Updates are installed after you accept the prompt.
+System Manager opens from the installed release and shows its version in the title. After a successful in-app update, it reopens on the new release. The editable workspace keeps local tool files, and module settings retain your selections.
 
 The bundled VLP-32C uses the `reference` profile at 600,000 rays per simulated second. An explicit `ASURT_VELODYNE_PROFILE` still selects the requested density.
 
