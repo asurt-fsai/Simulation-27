@@ -30,6 +30,10 @@ done
 
 public=false
 [[ "${repository,,}" != 'asurt-fsai/simulation-27' ]] || public=true
+if [[ "$public" == true && "$branch" != main && "$branch" != testing ]]; then
+    echo 'Choose --branch main for Release or --branch testing for Testing.' >&2
+    exit 2
+fi
 
 if [[ "$manifest" == https://* || -z "$manifest" ]]; then
     [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
@@ -61,16 +65,38 @@ if [[ -z "$manifest" && "$public" == true ]]; then
     if [[ "$branch" == testing ]]; then
         testing_tag=$(python3 - "$repository" <<'PY'
 import json
+from itertools import count
 import re
 import sys
+from time import sleep
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-with urlopen(f"https://api.github.com/repos/{sys.argv[1]}/releases?per_page=30", timeout=30) as stream:
-    releases = json.load(stream)
-builds = (tag for release in releases if release["prerelease"] and not release["draft"]
-          and any(asset["name"] == "asurt-release.json" for asset in release["assets"])
-          if (tag := re.fullmatch(r"testing-(\d+)", release["tag_name"])))
-latest = max(builds, key=lambda tag: int(tag[1]), default=None)
+def release_page(index):
+    for attempt in range(3):
+        try:
+            with urlopen(index, timeout=15) as stream:
+                return json.load(stream)
+        except HTTPError as error:
+            if attempt == 2 or error.code not in (408, 429, 500, 502, 503, 504):
+                raise
+        except (URLError, TimeoutError, ConnectionError):
+            if attempt == 2:
+                raise
+        sleep(attempt + 1)
+
+latest = None
+for page in count(1):
+    index = f"https://api.github.com/repos/{sys.argv[1]}/releases?per_page=100&page={page}"
+    releases = release_page(index)
+    builds = (tag for release in releases if release["prerelease"] and not release["draft"]
+              and any(asset["name"] == "asurt-release.json" for asset in release["assets"])
+              if (tag := re.fullmatch(r"testing-(\d+)", release["tag_name"])))
+    for tag in builds:
+        if latest is None or int(tag[1]) > int(latest[1]):
+            latest = tag
+    if len(releases) < 100:
+        break
 if latest is None:
     sys.exit("No published ASURT testing build is available.")
 print(latest[0])
@@ -94,7 +120,7 @@ if [[ -z "$manifest_source" ]]; then
     mv -- "$temp/asurt-release.json" "$temp/manifest.json"
     extra+=(--github-cli)
 elif [[ "$manifest_source" == https://* ]]; then
-    curl -fsSL --retry 2 "$manifest_source" -o "$temp/manifest.json"
+    curl -fsSL --connect-timeout 15 --retry 2 --retry-connrefused "$manifest_source" -o "$temp/manifest.json"
 else
     cp -- "$manifest_source" "$temp/manifest.json"
 fi
@@ -106,7 +132,6 @@ import re
 import shutil
 import subprocess
 import sys
-from urllib.request import urlopen
 
 meta, source, repo, output = sys.argv[1:]
 data = json.loads(Path(meta).read_text())
@@ -120,8 +145,8 @@ if not source:
     subprocess.run(["gh", "release", "download", tag, "--repo", repo,
                     "--pattern", name, "--dir", str(target.parent)], check=True)
 elif source.startswith("https://"):
-    with urlopen(f"https://github.com/{repo}/releases/download/{tag}/{name}", timeout=90) as response:
-        target.write_bytes(response.read())
+    subprocess.run(["curl", "-fsSL", "--connect-timeout", "15", "--retry", "2", "--retry-connrefused",
+                    f"https://github.com/{repo}/releases/download/{tag}/{name}", "-o", str(target)], check=True)
 else:
     shutil.copyfile(Path(source).resolve().parent / name, target)
 if not re.fullmatch(r"[a-f0-9]{64}", checksum) or hashlib.sha256(target.read_bytes()).hexdigest() != checksum:

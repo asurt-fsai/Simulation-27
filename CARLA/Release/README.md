@@ -29,6 +29,8 @@ Use **System Manager → Tools → ROS Bags** to record selected live topics int
 Use **System Manager → Module Settings → Check for updates** to check the selected channel from an open System Manager. Updates are installed after you accept the prompt.
 System Manager opens from the installed release and shows its version in the title. After a successful in-app update, it reopens on the new release. The editable workspace keeps local tool files, and module settings retain your selections.
 
+Choose **Release** or **Testing** in the update dialog to install the latest build on that channel, in either direction. On older builds without the channel picker, run the current installer with `--branch main` or `--branch testing` on Ubuntu. On Windows use `-Branch main` or `-Branch testing`.
+
 The bundled VLP-32C uses the `reference` profile at 600,000 rays per simulated second. An explicit `ASURT_VELODYNE_PROFILE` still selects the requested density.
 
 On native Ubuntu, the installer and launcher check for a working dedicated Vulkan GPU. The launcher uses the verified driver for the CARLA server. It honors explicit Vulkan or PRIME settings and uses the system Vulkan default when it cannot isolate a dedicated GPU. The installer prints the selected renderer.

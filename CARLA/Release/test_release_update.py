@@ -1,6 +1,7 @@
 """Exercise the System Manager update check and installer handoff."""
 
 import hashlib
+from contextlib import redirect_stdout
 from io import StringIO
 import json
 from pathlib import Path
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Simulator/Launchers"))
 import release_update as update
@@ -78,8 +80,11 @@ class ReleaseUpdateTest(unittest.TestCase):
             for tag, preview, draft in (("v0.1.27-flat", False, False), ("testing-2", True, False),
                                         ("testing-10", True, False), ("testing-11", True, True))
         ]
+        stable = dict(tag_name="v0.1.27-flat", prerelease=False, draft=False,
+                      assets=[{"name": "asurt-release.json"}])
         urls = {
-            "https://api.github.com/repos/asurt-fsai/Simulation-27/releases?per_page=30": index,
+            "https://api.github.com/repos/asurt-fsai/Simulation-27/releases?per_page=100&page=1": [stable] * 100,
+            "https://api.github.com/repos/asurt-fsai/Simulation-27/releases?per_page=100&page=2": index,
             "https://github.com/asurt-fsai/Simulation-27/releases/download/testing-10/asurt-release.json": {
                 "format": 1, "channel": "testing", "tag": "testing-10",
                 "runtime": {"linux": {"shipping_sha256": "linux-target"}}},
@@ -93,6 +98,35 @@ class ReleaseUpdateTest(unittest.TestCase):
         update.select_branch(self.state, "testing")
         with patch("release_update.urlopen", side_effect=lambda url, **_: StringIO(json.dumps(urls[url]))):
             self.assertEqual(update.check_updates(self.state), ("testing-10", []))
+        bootstrap = (Path(__file__).resolve().parents[2] / "Install-ASURT.sh").read_text()
+        lookup = bootstrap.split("testing_tag=$(python3 - \"$repository\" <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        output = StringIO()
+        with patch("urllib.request.urlopen", side_effect=lambda url, **_: StringIO(json.dumps(urls[url]))), \
+             patch.object(sys, "argv", ["installer", "asurt-fsai/Simulation-27"]), redirect_stdout(output):
+            exec(compile(lookup, "Install-ASURT.sh", "exec"), {})
+        self.assertEqual(output.getvalue().strip(), "testing-10")
+
+    def test_channel_defaults_to_the_version_family_in_older_receipts(self):
+        installed = {"repository": "asurt-fsai/Simulation-27", "tag": "testing-2"}
+        self.assertEqual(update.selected_branch(self.state, installed), "testing")
+        update.select_branch(self.state, "main")
+        self.assertEqual(update.selected_branch(self.state, installed), "main")
+        self.assertTrue(update.is_update(installed, {"format": 1, "tag": "v0.1.39-flat"}, "main"))
+
+    def test_release_check_retries_a_temporary_connection_failure(self):
+        stable = {"format": 1, "tag": "v0.1.39-flat", "channel": "main"}
+        temporary = URLError(TimeoutError("GitHub connection timed out"))
+        with patch("release_update.urlopen", side_effect=[temporary, StringIO(json.dumps(stable))]) as request, \
+             patch("release_update.sleep"):
+            self.assertEqual(update.public_manifest("asurt-fsai/Simulation-27", "main"), stable)
+            self.assertEqual(request.call_count, 2)
+
+    def test_permanent_missing_release_is_reported_immediately(self):
+        missing = HTTPError("https://example.com/release", 404, "Missing", {}, None)
+        with patch("release_update.urlopen", side_effect=missing) as request:
+            with self.assertRaises(HTTPError):
+                update.public_manifest("asurt-fsai/Simulation-27", "main")
+            request.assert_called_once()
 
     def test_switching_can_install_the_same_stable_release_again(self):
         stable = {"format": 1, "tag": "v0.1.27-flat"}

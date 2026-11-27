@@ -838,7 +838,8 @@ def main():
     args.tag = manifest["tag"]
     if args.repository.casefold() == PRODUCTION_REPOSITORY.casefold():
         channel = manifest.get("channel", "main")
-        if channel != args.branch or (channel == "testing" and not re.fullmatch(r"testing-\d+", args.tag)):
+        tags = {"main": r"v?\d+(?:\.\d+)+(?:-flat)?", "testing": r"testing-\d+"}
+        if channel != args.branch or channel not in tags or not re.fullmatch(tags[channel], args.tag):
             raise ValueError("The installer channel and ASURT release manifest do not match.")
     with (log / "session.lock").open("a") as lock:
         try:

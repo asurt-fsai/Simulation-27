@@ -73,6 +73,8 @@ def main():
         parser.error("Use testing-N for Testing and vX.Y.Z-flat for Release.")
     manifest = json.loads(args.base_manifest.read_text())
     reference = manifest["tag"]
+    if set(manifest.get("runtime", {})) != {"linux", "windows"}:
+        raise ValueError("Channel releases require both the Ubuntu and Windows runtimes.")
     if any(manifest["stack_patch"].get(key) != value for key, value in builder.item(args.base_patch).items()):
         raise ValueError("The baseline stack patch failed verification.")
     args.output.mkdir(parents=True, exist_ok=True)

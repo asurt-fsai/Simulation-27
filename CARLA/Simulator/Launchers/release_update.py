@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+from itertools import count
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 from threading import Thread
+from time import sleep
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import urlopen
 
@@ -49,14 +52,16 @@ def newer_revision(installed, latest):
 
 
 def selected_branch(state, installed):
-    branch = installed.get("branch", "main")
+    branch = installed.get("branch")
+    if branch not in ("main", "testing"):
+        branch = "testing" if TEST_VERSION.fullmatch(installed["tag"]) else "main"
     if installed["repository"].casefold() == PRODUCTION_REPOSITORY.casefold():
         try:
             saved = json.loads((state / CHANNEL_SELECTION).read_text())["branch"]
         except (OSError, ValueError, KeyError, TypeError):
             pass
         else:
-            if saved in CHANNELS:
+            if saved in ("main", "testing"):
                 branch = saved
     return branch
 
@@ -74,23 +79,45 @@ def select_branch(state, branch):
             temporary.unlink(missing_ok=True)
 
 
+def read_public_json(url, *, timeout):
+    for attempt in range(3):
+        try:
+            with urlopen(url, timeout=timeout) as stream:
+                return json.load(stream)
+        except HTTPError as error:
+            if attempt == 2 or error.code not in (408, 429, 500, 502, 503, 504):
+                raise
+        except (URLError, TimeoutError, ConnectionError):
+            if attempt == 2:
+                raise
+        sleep(attempt + 1)
+
+
 def public_manifest(repo, branch):
     if branch != "testing":
         url = f"https://github.com/{repo}/releases/latest/download/asurt-release.json"
     else:
-        with urlopen(f"https://api.github.com/repos/{repo}/releases?per_page=30", timeout=15) as stream:
-            releases = json.load(stream)
-        builds = (match for release in releases if release["prerelease"] and not release["draft"]
-                  and any(asset["name"] == "asurt-release.json" for asset in release["assets"])
-                  if (match := TEST_VERSION.fullmatch(release["tag_name"])))
-        latest = max(builds, key=lambda match: int(match[1]), default=None)
+        latest = None
+        for page in count(1):
+            index = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
+            releases = read_public_json(index, timeout=15)
+            builds = (match for release in releases if release["prerelease"] and not release["draft"]
+                      and any(asset["name"] == "asurt-release.json" for asset in release["assets"])
+                      if (match := TEST_VERSION.fullmatch(release["tag_name"])))
+            for match in builds:
+                if latest is None or int(match[1]) > int(latest[1]):
+                    latest = match
+            if len(releases) < 100:
+                break
         if latest is None:
             return None
         url = f"https://github.com/{repo}/releases/download/{latest[0]}/asurt-release.json"
-    with urlopen(url, timeout=15) as stream:
-        manifest = json.load(stream)
+    manifest = read_public_json(url, timeout=15)
     if branch == "testing" and (manifest.get("tag") != latest[0] or manifest.get("channel") != "testing"):
         raise ValueError("The testing release metadata does not match the selected build.")
+    if branch == "main" and (manifest.get("channel", "main") != "main"
+                             or not VERSION.fullmatch(manifest["tag"])):
+        raise ValueError("The Release feed did not return a stable ASURT build.")
     return manifest
 
 
@@ -169,9 +196,8 @@ def check_updates(state, *, branch=None, strict=False):
         else:
             ref = quote(branch, safe="")
             if production:
-                with urlopen(f"https://raw.githubusercontent.com/{repo}/{ref}/asurt-maps.json",
-                             timeout=12) as stream:
-                    catalog = json.load(stream)
+                catalog = read_public_json(
+                    f"https://raw.githubusercontent.com/{repo}/{ref}/asurt-maps.json", timeout=12)
             else:
                 catalog = json.loads(subprocess.check_output(
                     ["gh", "api", f"repos/{repo}/contents/asurt-maps.json?ref={ref}",
