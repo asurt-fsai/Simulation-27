@@ -150,6 +150,14 @@ def definitions(sources=None, *, validate=False):
         modules[name] = Module(name, binary, None, topic, ",".join(depends) or "-",
                                group, label, False, setup, True, tuple(arguments),
                                settings.get("revision", 0))
+    dependencies = [dependency for module in modules.values() if module.local
+                    for dependency in module.dependencies]
+    while dependencies:
+        dependency = dependencies.pop()
+        if (dependency in hidden and modules[dependency].retired
+                and not sources.get(dependency, {}).get("hidden")):
+            hidden.remove(dependency)
+            dependencies.extend(modules[dependency].dependencies)
     order, visiting, seen = [], set(), set()
 
     def visit(name):

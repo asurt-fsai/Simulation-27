@@ -66,6 +66,9 @@ class ModuleSwitchTests(unittest.TestCase):
         self.assertTrue(old.local)
         self.assertEqual(old.binary, "/tmp/my_stanley")
         self.assertEqual(old.setup, "/tmp/local_setup.bash")
+        entries = mod.definitions({"control_stanley": {"binary": "/tmp/my_track_stanley"}})
+        self.assertIn("planning_track_goal", {module.name for module in entries})
+        self.assertIn("control_stanley", {module.name for module in entries})
 
     def test_status_explains_disabled_and_transitive_prerequisites(self):
         entries = mod.definitions({})
