@@ -129,11 +129,20 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(heavy_water, 10)
         self.assertEqual(conditions[("heavy_rain", True)], (light, light_water))
 
-    def test_wetness_and_visibility_are_rendered_before_camera_processing(self):
+    def test_wetness_and_fog_are_rendered_before_camera_processing(self):
         effects = WeatherEffects(glare_scale=0, noise_std=0)
-        weather = SimpleNamespace(wetness=90, precipitation_deposits=40, fog_density=90, dust_storm=50)
+        weather = SimpleNamespace(wetness=90, precipitation_deposits=40, fog_density=90)
         image = np.random.default_rng(0).integers(0, 256, (180, 320, 3), dtype=np.uint8)
         np.testing.assert_array_equal(effects.process(image, weather, 0, 0, 1, 0), image)
+
+    def test_dust_veil_strengthens_with_intensity(self):
+        effects = WeatherEffects(glare_scale=0, noise_std=0)
+        image = np.full((180, 320, 3), 140, dtype=np.uint8)
+        mild, heavy = (effects.process(image, SimpleNamespace(dust_storm=dust), 0, 0, 1, 0)
+                       for dust in (30, 85))
+        self.assertGreater(heavy[0, 0, 2], mild[0, 0, 2])
+        self.assertLess(heavy[0, 0, 0], mild[0, 0, 0])
+        self.assertEqual(image[0, 0, 2], 140)
 
     def test_velodyne_rain_loses_weak_targets_and_adds_small_radial_noise(self):
         # Two ranges and bearings let us distinguish scatter from true targets.

@@ -115,7 +115,7 @@ def adapt_launchers(source, stack):
     launch.mkdir(parents=True, exist_ok=True)
     for name in ("map_packs.py", "map_pack_panel.py", "managed_modules.py", "native_vulkan.py", "release_update.py",
                  "world_selection.py", "weather_grip.py", "road_weather.py", "windows_interop.py", "process_ownership.py",
-                 "flat-asphalt.json", "MAP_PACKS.md", "Icons"):
+                 "flat-asphalt.json", "MAP_PACKS.md", "author-wet-road-materials.py", "Icons"):
         copy(source / name, launch / name)
     copy(HERE / "asurt", stack / "bin/asurt")
     copy(HERE / "dev-build", stack / "bin/dev-build")

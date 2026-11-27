@@ -1320,7 +1320,8 @@ class CameraManager(object):
         array = np.reshape(array, (image.height, image.width, 4))
         array = array[:, :, :3]
         weather = self._weather
-        if weather is not None and (weather.precipitation >= 3 or self._effects.lens_is_wet(2)):
+        if weather is not None and (weather.precipitation >= 3 or weather.dust_storm >= 5
+                                    or self._effects.lens_is_wet(2)):
             array = self._effects.process(array, weather, 0, 0, image.frame, 2,
                                           timestamp=image.timestamp)
         array = array[:, :, ::-1]

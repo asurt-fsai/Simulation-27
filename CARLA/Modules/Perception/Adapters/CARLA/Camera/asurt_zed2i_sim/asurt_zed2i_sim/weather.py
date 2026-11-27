@@ -7,6 +7,7 @@ import numpy as np
 
 
 MIN_LENS_WATER = 0.03
+MIN_DUST = 0.05
 
 
 def _get(weather, key, default=0.0):
@@ -19,6 +20,17 @@ def _fraction(weather, key):
 
 def _wrap_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
+
+
+def dust_veil(image, dust):
+    # Low renderer quality skips the native dust pass. Apply its color and
+    # contrast change in one OpenCV pass, without an extra scene capture.
+    opacity = 0.42 * dust**1.5
+    transmission = 1.0 - opacity
+    matrix = np.array(((transmission, 0, 0, 116 * opacity),
+                       (0, transmission, 0, 166 * opacity),
+                       (0, 0, transmission, 203 * opacity)), dtype=np.float32)
+    return cv2.transform(image, matrix)
 
 
 @lru_cache(maxsize=16)
@@ -104,14 +116,17 @@ class WeatherEffects:
             return bgr.copy()
         cloud = _fraction(weather, "cloudiness")
         rain = _fraction(weather, "precipitation")
+        dust = _fraction(weather, "dust_storm")
         wind = _fraction(weather, "wind_intensity")
         sun_alt = _get(weather, "sun_altitude_angle", -30.0)
         sun_yaw = _get(weather, "sun_azimuth_angle")
         water, pattern = self.lens_water(eye, rain, cloud, wind, sun_alt, timestamp, frame) if self.droplets_scale else (0.0, frame)
         droplets = water >= MIN_LENS_WATER
         glare = sun_alt > -5 and self.glare_scale > 0
+        if dust >= MIN_DUST:
+            bgr = dust_veil(bgr, dust)
         if not (droplets or glare or self.noise_std):
-            return bgr.copy()
+            return bgr if dust >= MIN_DUST else bgr.copy()
         h, w = bgr.shape[:2]
         out = bgr.astype(np.float32)
 
