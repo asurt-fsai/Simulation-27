@@ -8,6 +8,7 @@ import numpy as np
 
 MIN_LENS_WATER = 0.03
 MIN_DUST = 0.05
+LEGACY_FRAME_SECONDS = 0.033
 
 
 def _get(weather, key, default=0.0):
@@ -20,6 +21,27 @@ def _fraction(weather, key):
 
 def _wrap_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
+
+
+def needs_scene_depth(weather):
+    """Older editable camera nodes use this to decide whether to spawn depth cameras."""
+    return False
+
+
+def decode_scene_depth(image):
+    bgra = np.frombuffer(image.raw_data, dtype=np.uint8).reshape(image.height, image.width, 4)
+    depth = bgra[:, :, 0].astype(np.float32) * 65536.0
+    depth += bgra[:, :, 1].astype(np.float32) * 256.0
+    depth += bgra[:, :, 2]
+    return depth * (1000.0 / 16777215.0)
+
+
+def camera_ground_plane(pose, ground_z):
+    forward = pose.get_forward_vector()
+    right = pose.get_right_vector()
+    up = pose.get_up_vector()
+    return (pose.location.z - ground_z, forward.z, right.z, up.z,
+            pose.location.x, pose.location.y, forward.x, forward.y, right.x, right.y)
 
 
 def dust_veil(image, dust):
@@ -96,7 +118,9 @@ class WeatherEffects:
 
     def lens_water(self, eye, rain, cloud, wind, sun_altitude, timestamp, frame):
         if timestamp is None:
-            return rain, frame
+            # The bridge ticks at a fixed step. Older editable ZED nodes pass
+            # the CARLA world frame ID without the capture timestamp.
+            timestamp = frame * LEGACY_FRAME_SECONDS
         previous, last_time, pattern = self._lenses.get(eye, (0.0, timestamp, frame))
         if timestamp < last_time:
             return previous, pattern
@@ -110,7 +134,7 @@ class WeatherEffects:
         return water, pattern
 
     def process(self, bgr, weather, camera_yaw_deg, camera_pitch_deg, frame, eye,
-                horizontal_fov_deg=110.0, *, timestamp=None):
+                horizontal_fov_deg=110.0, depth_m=None, camera_plane=None, *, timestamp=None):
         """Return an independent image; never mutate raw CARLA frame data."""
         if not self.enabled:
             return bgr.copy()

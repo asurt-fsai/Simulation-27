@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]
                        / "Modules/Perception/Adapters/CARLA/LiDAR/asurt_velodyne_sim"))
 import weather_control as gui
 from asurt_velodyne_sim.weather import WeatherReturns
-from asurt_zed2i_sim.weather import WeatherEffects
+from asurt_zed2i_sim.weather import WeatherEffects, needs_scene_depth
 from road_weather import RoadWeather, rain_cloud_cover, road_conditions
 from weather_grip import dry_grip_multiplier, grip_multiplier
 
@@ -143,6 +143,18 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(heavy[0, 0, 2], mild[0, 0, 2])
         self.assertLess(heavy[0, 0, 0], mild[0, 0, 0])
         self.assertEqual(image[0, 0, 2], 140)
+
+    def test_older_editable_camera_still_dries_without_using_depth(self):
+        effects = WeatherEffects(glare_scale=0, noise_std=0)
+        rain = SimpleNamespace(precipitation=85, wetness=90)
+        clear = SimpleNamespace(precipitation=0, sun_altitude_angle=70)
+        image = np.full((180, 320, 3), 120, np.uint8)
+        self.assertFalse(needs_scene_depth(rain))
+        effects.process(image, rain, 0, 0, 10, 0, 110, None, None)
+        effects.process(image, clear, 0, 0, 100, 0, 110)
+        self.assertTrue(effects.lens_is_wet(0))
+        dried = effects.process(image, clear, 0, 0, 3000, 0, 110)
+        np.testing.assert_array_equal(dried, image)
 
     def test_velodyne_rain_loses_weak_targets_and_adds_small_radial_noise(self):
         # Two ranges and bearings let us distinguish scatter from true targets.
