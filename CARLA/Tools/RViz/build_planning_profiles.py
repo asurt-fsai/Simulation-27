@@ -239,7 +239,7 @@ def configure_goal_pose(source):
     return view
 
 
-def configure_control(source):
+def configure_control(source, *, mpc=True):
     """Dedicated RViz test bench: clicked goal vs planned and driven paths."""
     view = configure_goal_pose(source)
     manager = view["Visualization Manager"]
@@ -294,18 +294,35 @@ def configure_control(source):
     status["Topic"]["Value"] = "/control/pure_pursuit/diagnostic_marker"
     control["Name"] = "Control | goal, planned path, actual path, diagnostics"
     control["Displays"].extend([driven, status])
+    if mpc:
+        reference = next(entry for entry in displays if entry["Name"].startswith("Classical |"))
+        reference["Enabled"] = True
+        planned["Name"] = "RViz Goal Pose | classical cone route"
+        control["Name"] = "Control | goal and Pure Pursuit diagnostics"
+        control["Displays"][2]["Topic"]["Value"] = "/marker_viz"
+        predicted = deepcopy(planned)
+        predicted.update({"Name": "MPC predicted vehicle trajectory (amber)", "Color": "255; 186; 66",
+                          "Line Style": "Billboards"})
+        predicted["Topic"].update({"Value": "/mpc/predicted_path", "Reliability Policy": "Best Effort"})
+        actions = deepcopy(status)
+        actions.update({"Class": "rviz_default_plugins/MarkerArray", "Name": "MPC speed and steering request"})
+        actions["Topic"].update({"Value": "/asurt/rviz/mpc_commands", "Depth": 5})
+        displays.insert(displays.index(control), group("MPC | predicted trajectory and requested commands",
+                                                       [predicted, actions]))
     diagnostics = next(group for group in displays
                        if group["Name"].startswith("Diagnostics |"))
     diagnostics["Enabled"] = True
     for item in diagnostics["Displays"]:
         if item["Class"] == "rviz_default_plugins/Odometry":
             item["Enabled"] = True
+            if mpc:
+                item["Topic"]["Reliability Policy"] = "Best Effort"
     return view
 
 
 def configure_track_control(source):
     """High-speed Stanley + SLAM cone-map goal test, independent of Pure Pursuit."""
-    view = configure_control(source)
+    view = configure_control(source, mpc=False)
     manager = view["Visualization Manager"]
     displays = manager["Displays"]
     slam = next(g for g in displays if g["Name"].startswith("SLAM cones |"))

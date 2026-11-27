@@ -1,4 +1,7 @@
 """Module enablement tests without touching the running simulator."""
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import unittest
@@ -139,6 +142,20 @@ class ModuleSwitchTests(unittest.TestCase):
         for pid in mod.node_pids(zed):
             argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
             self.assertIn(zed.binary.encode(), argv[:2])
+
+    def test_status_follows_a_supervised_local_launcher_after_exec(self):
+        entries = mod.definitions({"local_mpc": {"binary": "/tmp/asurt-test-mpc-launch.sh",
+                                                "label": "MPC", "group": "Control",
+                                                "topic": "/mpc/predicted_path"}})
+        local = next(module for module in entries if module.name == "local_mpc")
+        with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"],
+                              start_new_session=True) as process:
+            try:
+                self.assertEqual(mod.node_pids(local, group=process.pid, supervisor=os.getpid()), [process.pid])
+                self.assertEqual(mod.node_pids(local, group=process.pid, supervisor=os.getppid()), [])
+                self.assertEqual(mod.node_pids(local), [])
+            finally:
+                process.terminate()
 
 
 if __name__ == "__main__":

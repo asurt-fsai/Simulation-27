@@ -56,9 +56,13 @@ class PlanningViewTests(unittest.TestCase):
         topics = {item["Topic"]["Value"] for item in group["Displays"]}
         self.assertEqual(topics, {
             "/planning/goal_pose/path", "/planning/goal_pose/goal_marker",
-            "/control/pure_pursuit/target", "/control/pure_pursuit/driven_path",
+            "/marker_viz", "/control/pure_pursuit/driven_path",
             "/control/pure_pursuit/diagnostic_marker",
         })
+        mpc = next(g for g in manager["Displays"] if g["Name"].startswith("MPC |"))
+        self.assertTrue(mpc["Enabled"])
+        self.assertEqual({item["Topic"]["Value"] for item in mpc["Displays"]},
+                         {"/mpc/predicted_path", "/asurt/rviz/mpc_commands"})
 
     def test_goal_pose_profile_has_click_tool_route_and_target(self):
         base = cfg("planning_classical.rviz")

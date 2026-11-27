@@ -738,8 +738,12 @@ def tool(profile, action, arguments, expected_session=None):
             window_env["ASURT_ROAD_WEATHER_DIR"] = data["log"]
         window_env["PYTHONPATH"] = str(LAUNCH) + os.pathsep + window_env.get("PYTHONPATH", "")
     elif action in RVIZ_PRESETS:
-        cmd = ["rviz2", "-d", tool_path(action, TOOLS / "RViz/config" / RVIZ_PRESETS[action])]
-        if action in GOAL_RVIZ:
+        preset = tool_path(action, TOOLS / "RViz/config" / RVIZ_PRESETS[action])
+        if action == "control-rviz":
+            cmd = ["ros2", "launch", TOOLS / "RViz/control_rviz.launch.py", f"rviz_config:={preset}"]
+        else:
+            cmd = ["rviz2", "-d", preset]
+        if action in GOAL_RVIZ and action != "control-rviz":
             cmd += ["--ros-args", "-p", "use_sim_time:=true"]
     elif action == "cancel-goal":
         cmd = ["bash", tool_path(action, TOOLS / "RViz/cancel_goal.sh")]

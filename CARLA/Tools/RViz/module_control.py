@@ -330,10 +330,25 @@ def save_switches(changes):
     return effective_states(entries, overrides)
 
 
-def node_pids(module, *, group=None):
-    """Return only exact user-owned installed entrypoints, never shell parents."""
+def owned_module_group(group, supervisor):
+    if type(group) is not int or group <= 1 or type(supervisor) is not int or supervisor <= 1:
+        return False
+    leader = Path("/proc") / str(group)
+    try:
+        if leader.stat().st_uid != os.getuid():
+            return False
+        fields = (leader / "stat").read_text().rsplit(")", 1)[1].split()
+        return fields[0] != "Z" and tuple(map(int, fields[1:4])) == (supervisor, group, group)
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def node_pids(module, *, group=None, supervisor=None):
+    """Resolve exact entrypoints, with a supervised-group fallback for local launch scripts."""
     expected = os.path.realpath(module.binary)
     found = []
+    managed = []
+    follow_group = module.local and owned_module_group(group, supervisor)
     uid = os.getuid()
     for path in Path("/proc").iterdir():
         if not path.name.isdecimal():
@@ -349,9 +364,11 @@ def node_pids(module, *, group=None):
             if any(arg.startswith("/") and os.path.realpath(arg) == expected
                    for arg in argv[:2]):
                 found.append(int(path.name))
+            elif follow_group and argv:
+                managed.append(int(path.name))
         except (OSError, PermissionError):
             continue
-    return sorted(found)
+    return sorted(found or managed)
 
 
 def stop_module(module, deadline_seconds=8):
@@ -396,7 +413,7 @@ def live_states(session=None):
     for module in entries:
         running = report.get(module.name, {})
         group = running.get("group")
-        pids = node_pids(module, group=group) if group else []
+        pids = node_pids(module, group=group, supervisor=session.get("pid")) if group else []
         ram_kib = 0
         for pid in pids:
             try:
