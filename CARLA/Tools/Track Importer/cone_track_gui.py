@@ -409,13 +409,44 @@ class ConeTrackWindow:
 
         def worker():
             try:
-                result = subprocess.run(command, capture_output=True, text=True,
-                                        timeout=240 if mode == "find-placement" else 180)
-                output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
-                self.root.after(0, lambda: self._complete(mode, result.returncode, output))
+                if mode == "find-placement":
+                    code, output = self.run_ground_search(command)
+                else:
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
+                    code = result.returncode
+                    output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+                self.root.after(0, lambda: self._complete(mode, code, output))
             except Exception as exc:
                 self.root.after(0, lambda msg=str(exc): self._complete(mode, 1, msg))
         threading.Thread(target=worker, daemon=True).start()
+
+    def run_ground_search(self, command):
+        lines = []
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True) as process:
+            timed_out = threading.Event()
+
+            def expire():
+                if process.poll() is None:
+                    timed_out.set()
+                    process.kill()
+
+            timer = threading.Timer(240, expire)
+            timer.daemon = True
+            timer.start()
+            try:
+                for line in process.stdout:
+                    if line.startswith("PLACEMENT_PROGRESS: "):
+                        message = line.split(": ", 1)[1].strip()
+                        self.root.after(0, lambda message=message: self.feedback.set(message))
+                    else:
+                        lines.append(line)
+                code = process.wait()
+            finally:
+                timer.cancel()
+        if timed_out.is_set():
+            lines.append("Ground placement search timed out while waiting for CARLA.\n")
+        return code, "".join(lines).strip()
 
     def set_busy(self, busy: bool, status: str) -> None:
         self.busy = busy

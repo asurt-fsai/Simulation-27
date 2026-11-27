@@ -31,7 +31,7 @@ from .optics import Calibration
 from .overlay_sync import next_overlay_frame
 from .stereo_sync import StereoSynchronizer
 from .tracking import ConeTracker
-from .weather import WeatherEffects
+from .weather import AtmosphericDepth, WeatherEffects
 
 
 def load_carla():
@@ -138,6 +138,7 @@ class Zed2iStereoNode(Node):
         self.camera_yaw = 0.0
         self.camera_pitch = 0.0
         self.actors = {}
+        self.atmospheric_depth = AtmosphericDepth()
         self.destroyed = False
         self.received_pairs = 0
         self.tracker = ConeTracker()
@@ -403,6 +404,9 @@ class Zed2iStereoNode(Node):
             transform = self.actors["left"].get_transform()
             self.camera_yaw = transform.rotation.yaw
             self.camera_pitch = transform.rotation.pitch
+            if self.effects.enabled:
+                # One coarse view suffices for distant scattering in both eyes.
+                self.atmospheric_depth.update(self.carla, self.world, self.actors["left"], self.weather)
         except RuntimeError as exc:
             self.get_logger().warning(f"Weather/pose query failed: {exc}", throttle_duration_sec=10.0)
 
@@ -434,7 +438,8 @@ class Zed2iStereoNode(Node):
         frame, bgr, timestamp, _ = sample
         return self.effects.process(
             bgr, self.weather, self.camera_yaw, self.camera_pitch, frame,
-            0 if eye == "left" else 1, self.cal.hfov_deg, timestamp=timestamp,
+            0 if eye == "left" else 1, self.cal.hfov_deg,
+            self.atmospheric_depth.for_frame(timestamp), timestamp=timestamp,
         )
 
     def process_left(self, sample):
@@ -640,6 +645,10 @@ class Zed2iStereoNode(Node):
         if self.destroyed:
             return
         self.destroyed = True
+        try:
+            self.atmospheric_depth.stop()
+        except RuntimeError as exc:
+            self.get_logger().warning(f"Could not stop weather depth camera: {exc}")
         if self.detection_pool is not None:
             # Drain at most one active inference before releasing publishers
             # and owned sensor actors. This does not affect the CARLA ticker.

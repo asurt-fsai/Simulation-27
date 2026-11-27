@@ -407,11 +407,13 @@ class World(object):
         self.hud.render(display)
 
     def destroy_sensors(self):
+        self.camera_manager.stop_atmospheric_depth()
         self.camera_manager.sensor.destroy()
         self.camera_manager.sensor = None
         self.camera_manager.index = None
 
     def destroy(self):
+        self.camera_manager.stop_atmospheric_depth()
         sensors = [
             self.camera_manager.sensor,
             self.collision_sensor.sensor,
@@ -1210,9 +1212,11 @@ class CameraManager(object):
         self._weather = None
         self._weather_next = 0.0
         self._effects = None
+        self._atmospheric_depth = None
         if os.environ.get('ASURT_ROAD_WEATHER_DIR'):
             from asurt_zed2i_sim import weather as camera_weather
             self._effects = camera_weather.WeatherEffects(glare_scale=0.0, noise_std=0.0)
+            self._atmospheric_depth = camera_weather.AtmosphericDepth()
         # Hz the display camera renders at; <=0 means render every world tick.
         self._render_rate = render_rate
         bound_x = 0.5 + self._parent.bounding_box.extent.x
@@ -1273,6 +1277,7 @@ class CameraManager(object):
         needs_respawn = True if self.index is None else \
             (force_respawn or (self.sensors[index][2] != self.sensors[self.index][2]))
         if needs_respawn:
+            self.stop_atmospheric_depth()
             if self.sensor is not None:
                 self.sensor.destroy()
                 self.surface = None
@@ -1306,9 +1311,18 @@ class CameraManager(object):
             return
         self._weather_next = now + 1.0
         try:
-            self._weather = self._parent.get_world().get_weather()
+            world = self._parent.get_world()
+            self._weather = world.get_weather()
+            self._atmospheric_depth.update(carla, world, self.sensor, self._weather)
         except RuntimeError as exc:
             logging.warning('Driving camera weather update failed: %s', exc)
+
+    def stop_atmospheric_depth(self):
+        if self._atmospheric_depth is not None:
+            try:
+                self._atmospheric_depth.stop()
+            except RuntimeError as exc:
+                logging.warning('Could not stop driving weather depth camera: %s', exc)
 
     @staticmethod
     def _parse_image(weak_self, image, index):
@@ -1321,8 +1335,10 @@ class CameraManager(object):
         array = array[:, :, :3]
         weather = self._weather
         if weather is not None and (weather.precipitation >= 3 or weather.dust_storm >= 5
+                                    or weather.fog_density >= 5
                                     or self._effects.lens_is_wet(2)):
             array = self._effects.process(array, weather, 0, 0, image.frame, 2,
+                                          depth_m=self._atmospheric_depth.for_frame(image.timestamp),
                                           timestamp=image.timestamp)
         array = array[:, :, ::-1]
         self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))

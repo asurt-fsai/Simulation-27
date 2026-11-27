@@ -63,6 +63,38 @@ class FrameZeroWorld(World):
         return self.get_snapshot()
 
 
+class PlacementSearchTests(unittest.TestCase):
+    def setUp(self):
+        self.args = types.SimpleNamespace(
+            anchor="coords", origin_x=0.0, origin_y=0.0, origin_z=1.0, yaw=0.0,
+            ground="project", search_radius=20, search_step=20, search_candidates=4,
+            search_finalists=2, forward_offset=0.0, side_offset=0.0, invert_y=False,
+        )
+        self.cones = [mod.Cone("blue", float(i), 0) for i in range(100)]
+        hero = mock.patch.object(mod, "find_hero", return_value=None)
+        hero.start()
+        self.addCleanup(hero.stop)
+
+    def test_first_supported_candidate_checks_each_cone_once(self):
+        with mock.patch.object(mod, "ground_z", return_value=1.0) as ground:
+            result = mod.search_ground_placement(self.cones, self.args, None, None)
+        self.assertTrue(result["found"])
+        self.assertEqual(result["candidates_sampled"], 1)
+        self.assertEqual(ground.call_count, 100)
+
+    def test_sample_alone_cannot_approve_a_placement(self):
+        def ground(_carla, _world, x, y, *_args):
+            if x == 1 and y == 0:
+                raise RuntimeError("Missing ground between the sample points")
+            return 1.0
+
+        with mock.patch.object(mod, "ground_z", side_effect=ground) as probe:
+            result = mod.search_ground_placement(self.cones, self.args, None, None)
+        self.assertTrue(result["found"])
+        self.assertEqual((result["yaw"], result["candidates_sampled"]), (90, 2))
+        self.assertEqual(probe.call_count, 113)
+
+
 class ImporterStateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

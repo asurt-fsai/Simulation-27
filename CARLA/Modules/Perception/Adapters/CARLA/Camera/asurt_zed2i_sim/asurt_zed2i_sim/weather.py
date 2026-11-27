@@ -7,7 +7,7 @@ import numpy as np
 
 
 MIN_LENS_WATER = 0.03
-MIN_DUST = 0.05
+MIN_HAZE = 0.05
 LEGACY_FRAME_SECONDS = 0.033
 
 
@@ -44,15 +44,81 @@ def camera_ground_plane(pose, ground_z):
             pose.location.x, pose.location.y, forward.x, forward.y, right.x, right.y)
 
 
+class AtmosphericDepth:
+    """A small depth stream for fog and dust, paired to an existing RGB view."""
+
+    def __init__(self):
+        self.camera = None
+        self.sample = None
+        self.rgb_id = None
+
+    def update(self, carla, world, rgb, weather):
+        if max(_fraction(weather, "fog_density"), _fraction(weather, "dust_storm")) < MIN_HAZE:
+            self.stop()
+            return
+        if self.rgb_id == rgb.id and self.camera is not None:
+            return
+        self.stop()
+        settings = rgb.attributes
+        width = min(192, int(settings["image_size_x"]))
+        height = max(1, round(width * int(settings["image_size_y"]) / int(settings["image_size_x"])))
+        blueprint = world.get_blueprint_library().find("sensor.camera.depth")
+        for field, value in (("image_size_x", width), ("image_size_y", height), ("fov", settings["fov"]),
+                             ("sensor_tick", 0.2), ("role_name", "asurt_atmospheric_depth")):
+            blueprint.set_attribute(field, str(value))
+        camera = world.spawn_actor(blueprint, carla.Transform(), attach_to=rgb)
+        self.camera, self.rgb_id = camera, rgb.id
+        try:
+            camera.listen(lambda frame: self.receive(camera, frame))
+        except RuntimeError:
+            self.stop()
+            raise
+
+    def receive(self, camera, frame):
+        if camera is self.camera:
+            self.sample = camera, frame.timestamp, decode_scene_depth(frame)
+
+    def for_frame(self, timestamp):
+        sample = self.sample
+        if sample is not None and sample[0] is self.camera and abs(timestamp - sample[1]) <= 0.5:
+            return sample[2]
+        return None
+
+    def stop(self):
+        camera, self.camera = self.camera, None
+        self.sample = self.rgb_id = None
+        if camera is not None:
+            try:
+                camera.stop()
+            finally:
+                camera.destroy()
+
+
 def dust_veil(image, dust):
-    # Low renderer quality skips the native dust pass. Apply its color and
-    # contrast change in one OpenCV pass, without an extra scene capture.
+    # A subtle veil while the depth stream is warming up.
     opacity = 0.42 * dust**1.5
     transmission = 1.0 - opacity
     matrix = np.array(((transmission, 0, 0, 116 * opacity),
                        (0, transmission, 0, 166 * opacity),
                        (0, 0, transmission, 203 * opacity)), dtype=np.float32)
     return cv2.transform(image, matrix)
+
+
+@lru_cache(maxsize=8)
+def airlight_image(height, width, color):
+    return np.full((height, width, 3), color, dtype=np.uint8)
+
+
+def attenuate_visibility(image, depth, fog, start, dust):
+    fog = 0.095 * fog**2 if fog >= MIN_HAZE else 0.0
+    dust = 0.064 * dust**1.5 if dust >= MIN_HAZE else 0.0
+    thickness = fog * np.maximum(depth - start, 0.0) + dust * depth
+    transmission = np.exp(-thickness)
+    h, w = image.shape[:2]
+    transmission = cv2.resize(transmission, (w, h), interpolation=cv2.INTER_LINEAR)
+    color = tuple(round((fog * cool + dust * warm) / (fog + dust))
+                  for cool, warm in zip((196, 201, 207), (145, 177, 205)))
+    return cv2.blendLinear(image, airlight_image(h, w, color), transmission, 1.0 - transmission)
 
 
 @lru_cache(maxsize=16)
@@ -140,6 +206,7 @@ class WeatherEffects:
             return bgr.copy()
         cloud = _fraction(weather, "cloudiness")
         rain = _fraction(weather, "precipitation")
+        fog = _fraction(weather, "fog_density")
         dust = _fraction(weather, "dust_storm")
         wind = _fraction(weather, "wind_intensity")
         sun_alt = _get(weather, "sun_altitude_angle", -30.0)
@@ -147,10 +214,13 @@ class WeatherEffects:
         water, pattern = self.lens_water(eye, rain, cloud, wind, sun_alt, timestamp, frame) if self.droplets_scale else (0.0, frame)
         droplets = water >= MIN_LENS_WATER
         glare = sun_alt > -5 and self.glare_scale > 0
-        if dust >= MIN_DUST:
+        atmosphere = max(fog, dust) >= MIN_HAZE and depth_m is not None
+        if atmosphere:
+            bgr = attenuate_visibility(bgr, depth_m, fog, max(0.0, _get(weather, "fog_distance")), dust)
+        elif dust >= MIN_HAZE:
             bgr = dust_veil(bgr, dust)
         if not (droplets or glare or self.noise_std):
-            return bgr if dust >= MIN_DUST else bgr.copy()
+            return bgr if atmosphere or dust >= MIN_HAZE else bgr.copy()
         h, w = bgr.shape[:2]
         out = bgr.astype(np.float32)
 

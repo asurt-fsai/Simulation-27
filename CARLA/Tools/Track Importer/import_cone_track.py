@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -484,7 +485,7 @@ def placed_cones(cones: list[Cone], args: argparse.Namespace, carla, world, blue
     return placed, invalid
 
 
-def search_ground_placement(cones: list[Cone], args: argparse.Namespace, carla, world):
+def search_ground_placement(cones: list[Cone], args: argparse.Namespace, carla, world, *, progress=None):
     """Find a nearby, *fully projected* candidate; never move/spawn actors.
 
     The search is bounded, sampled first for speed, then completely checked.
@@ -543,31 +544,38 @@ def search_ground_placement(cones: list[Cone], args: argparse.Namespace, carla, 
         return z
 
     screened = []
-    for dx, dy, rotation in positions:
-        x = args.origin_x + dx
-        y = args.origin_y + dy
-        yaw = args.yaw + rotation
-        passes = sum(probe(cones[i], x, y, yaw) is not None for i in sample)
-        screened.append((passes, dx, dy, rotation))
-    screened.sort(key=lambda item: (-item[0], math.hypot(item[1], item[2]), abs(item[3])))
-
     verified = 0
     best = None
-    # A few full verifications; no result can be marked 'found' from sampling.
-    for sample_passes, dx, dy, rotation in screened[:args.search_finalists]:
-        if best is not None and best["invalid"] == 0:
-            break
+    next_report = 0.0
+
+    def report(message):
+        nonlocal next_report
+        now = time.monotonic()
+        if progress is not None and now >= next_report:
+            progress(message)
+            next_report = now + 1
+
+    def verify(passes, dx, dy, rotation, checked, *, reject_early=False):
+        nonlocal best, verified
         x = args.origin_x + dx
         y = args.origin_y + dy
         yaw = args.yaw + rotation
-        failed = [i + 1 for i, cone in enumerate(cones)
-                  if probe(cone, x, y, yaw) is None]
+        failed = []
+        for i, cone in enumerate(cones):
+            if i % 10 == 0:
+                report(f"Checking cone {i + 1} of {len(cones)} at candidate {verified + 1}…")
+            if i not in checked:
+                checked[i] = probe(cone, x, y, yaw) is not None
+            if not checked[i]:
+                if reject_early:
+                    return False
+                failed.append(i + 1)
         verified += 1
         result = {
             "found": not failed, "invalid": len(failed),
             "total": len(cones), "origin_x": x, "origin_y": y,
             "yaw": yaw, "forward_offset": args.forward_offset,
-            "sample_passed": sample_passes, "sample_total": len(sample),
+            "sample_passed": passes, "sample_total": len(sample),
             "invalid_indices": failed,
         }
         if best is None or (result["invalid"], math.hypot(dx, dy), abs(rotation)) < (
@@ -575,6 +583,28 @@ def search_ground_placement(cones: list[Cone], args: argparse.Namespace, carla, 
                                              best["origin_y"] - args.origin_y),
                 abs(best["yaw"] - args.yaw)):
             best = result
+        return not failed
+
+    # A perfect sample at this rank already precedes every unseen placement.
+    # Verify it immediately and reuse its sample checks in the full result.
+    perfect_samples = 0
+    for index, (dx, dy, rotation) in enumerate(positions, 1):
+        report(f"Checking nearby placement {index} of {len(positions)}…")
+        x, y, yaw = args.origin_x + dx, args.origin_y + dy, args.yaw + rotation
+        checked = {i: probe(cones[i], x, y, yaw) is not None for i in sample}
+        passes = sum(checked.values())
+        candidate = (passes, dx, dy, rotation, checked)
+        screened.append(candidate)
+        if passes == len(sample) and perfect_samples < args.search_finalists:
+            perfect_samples += 1
+            if verify(*candidate, reject_early=True):
+                break
+    else:
+        # Keep the full failure diagnostics if no candidate passed.
+        screened.sort(key=lambda item: (-item[0], math.hypot(item[1], item[2]), abs(item[3])))
+        for candidate in screened[:args.search_finalists]:
+            if verify(*candidate):
+                break
     if best is None:
         raise RuntimeError("No placement candidates were checked")
     best["candidates_sampled"] = len(screened)
@@ -994,7 +1024,9 @@ def main(argv=None) -> int:
             place_hero(cones, args, carla, world, preview=args.mode == "car-preview")
             return 0
         if args.mode == "find-placement":
-            result = search_ground_placement(cones, args, carla, world)
+            result = search_ground_placement(
+                cones, args, carla, world,
+                progress=lambda message: print(f"PLACEMENT_PROGRESS: {message}", flush=True))
             print(f"Ground search sampled {result['candidates_sampled']} placements and "
                   f"fully checked {result['candidates_verified']} candidates.")
             if result["found"]:

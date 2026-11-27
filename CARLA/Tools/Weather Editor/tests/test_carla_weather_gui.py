@@ -4,6 +4,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -17,7 +18,7 @@ import weather_control as gui
 from asurt_velodyne_sim.weather import WeatherReturns
 from asurt_zed2i_sim.weather import WeatherEffects, needs_scene_depth
 from road_weather import RoadWeather, rain_cloud_cover, road_conditions
-from weather_grip import dry_grip_multiplier, grip_multiplier
+from weather_grip import WeatherGrip, dry_grip_multiplier, grip_multiplier
 
 
 class FakeWeather:
@@ -55,6 +56,46 @@ class FakeWorld:
 
 
 class WeatherLogicTests(unittest.TestCase):
+    def test_rain_never_rebuilds_physx_while_moving_or_spinning(self):
+        world = FakeWorld()
+        world.get_actors = Mock()
+        world.get_actors.return_value.filter.return_value = []
+        zero = SimpleNamespace(x=0.0, y=0.0, z=0.0)
+        hero = Mock()
+        hero.get_velocity.return_value = SimpleNamespace(x=3.0, y=0.0, z=0.0)
+        hero.get_angular_velocity.return_value = zero
+        rotation = SimpleNamespace(pitch=0.0, roll=0.0)
+        hero.get_transform.return_value = SimpleNamespace(rotation=rotation)
+        hero.get_control.return_value = SimpleNamespace(throttle=0.0)
+        wheels = [SimpleNamespace(tire_friction=0.7) for _ in range(4)]
+        hero.get_physics_control.return_value = SimpleNamespace(wheels=wheels)
+        grip = WeatherGrip(world, hero)
+        rain = SimpleNamespace(wetness=80, precipitation_deposits=30)
+        dry = SimpleNamespace(wetness=0, precipitation_deposits=0)
+        grip.update(rain, 30)
+        hero.get_velocity.return_value = zero
+        rotation.roll = 50.0
+        grip.update(rain, 30)
+        hero.apply_physics_control.assert_not_called()
+        rotation.roll = 0.0
+        grip.update(rain, 30)
+        hero.apply_physics_control.assert_not_called()
+        world.elapsed = 1.0
+        self.assertEqual(grip.update(rain, 30), 0.65)
+        self.assertEqual(hero.apply_physics_control.call_count, 1)
+        self.assertAlmostEqual(wheels[0].tire_friction, 0.455)
+        hero.set_target_velocity.assert_not_called()
+        hero.set_target_angular_velocity.assert_not_called()
+        grip.update(dry, 30)
+        world.elapsed = 2.0
+        self.assertEqual(grip.update(dry, 30), 1.0)
+        self.assertEqual([wheel.tire_friction for wheel in wheels], [0.7] * 4)
+        wheels[0].tire_friction = 0.0
+        grip.update(rain, 30)
+        world.elapsed = 3.0
+        self.assertIsNone(grip.update(rain, 30))
+        self.assertEqual(hero.apply_physics_control.call_count, 2)
+
     def test_fields_unique(self):
         self.assertEqual(len(gui.CONTROLS), len(gui.BY_NAME))
 
@@ -143,6 +184,24 @@ class WeatherLogicTests(unittest.TestCase):
         self.assertGreater(heavy[0, 0, 2], mild[0, 0, 2])
         self.assertLess(heavy[0, 0, 0], mild[0, 0, 0])
         self.assertEqual(image[0, 0, 2], 140)
+
+    def test_fog_and_dust_reduce_distant_cone_contrast_during_rain(self):
+        image = np.zeros((18, 32, 3), dtype=np.uint8)
+        image[:, :16] = (240, 30, 30)
+        image[:, 16:] = (240, 30, 30)
+        depth = np.full((18, 32), 3, dtype=np.float32)
+        depth[:, 16:] = 45
+        effects = WeatherEffects(glare_scale=0, noise_std=0, droplets_scale=0)
+        for field in ("fog_density", "dust_storm"):
+            def contrast(intensity):
+                conditions = SimpleNamespace(precipitation=85, fog_distance=5, **{field: intensity})
+                output = effects.process(image, conditions, 0, 0, 1, 0, depth_m=depth)
+                return tuple(int(output[10, x, 0]) - int(output[10, x, 2]) for x in (4, 27))
+            near_mild, far_mild = contrast(30)
+            near_heavy, far_heavy = contrast(85)
+            self.assertGreater(near_heavy, far_heavy)
+            self.assertGreater(far_mild, far_heavy + 70)
+            self.assertGreater(near_mild, 150)
 
     def test_older_editable_camera_still_dries_without_using_depth(self):
         effects = WeatherEffects(glare_scale=0, noise_std=0)

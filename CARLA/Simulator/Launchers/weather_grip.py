@@ -25,6 +25,19 @@ class WeatherGrip:
         self.multiplier = 1.0
         self.dry_friction = None
         self.last_friction = None
+        self.rest_since = None
+
+    def settled(self):
+        velocity = self.hero.get_velocity()
+        angular = self.hero.get_angular_velocity()
+        rotation = self.hero.get_transform().rotation
+        return (
+            math.hypot(velocity.x, velocity.y, velocity.z) <= 0.12
+            and math.hypot(angular.x, angular.y, angular.z) <= 2.0
+            and abs(rotation.pitch) <= 15.0
+            and abs(rotation.roll) <= 15.0
+            and self.hero.get_control().throttle <= 0.05
+        )
 
     def update(self, weather, tire_c):
         multiplier = grip_multiplier(weather, tire_c)
@@ -33,6 +46,17 @@ class WeatherGrip:
         # intermediate updates, but always restore the exact temperature-
         # adjusted dry baseline when the last film of water disappears.
         if multiplier == self.multiplier or (not dry and abs(multiplier - self.multiplier) < 0.019):
+            self.rest_since = None
+            return None
+        # Rebuilding PhysX during a collision can replace the contact state
+        # mid-impulse. Wait for the car to settle before changing its wheels.
+        if not self.settled():
+            self.rest_since = None
+            return None
+        now = self.world.get_snapshot().timestamp.elapsed_seconds
+        if self.rest_since is None or now < self.rest_since:
+            self.rest_since = now
+        if now - self.rest_since < 0.25:
             return None
         # The existing manual ROS service and map-specific friction zones
         # also write the wheel values. Leave them in control while present.
@@ -42,6 +66,8 @@ class WeatherGrip:
         physics = self.hero.get_physics_control()
         wheels = physics.wheels
         current = tuple(wheel.tire_friction for wheel in wheels)
+        if not current or any(not math.isfinite(value) or value <= 0 for value in current):
+            return None
         if self.last_friction is None or any(
                 not math.isclose(a, b, rel_tol=1e-5, abs_tol=1e-6)
                 for a, b in zip(current, self.last_friction)):
@@ -50,13 +76,11 @@ class WeatherGrip:
             wheel.tire_friction = dry * multiplier
         physics.wheels = wheels
 
-        # CARLA recreates the vehicle physics on apply. Preserve its motion
-        # just as the bridge does when updating live drag settings.
-        linear = self.hero.get_velocity()
-        angular = self.hero.get_angular_velocity()
+        if not self.settled():
+            self.rest_since = None
+            return None
         self.hero.apply_physics_control(physics)
         self.last_friction = tuple(wheel.tire_friction for wheel in wheels)
         self.multiplier = multiplier
-        self.hero.set_target_velocity(linear)
-        self.hero.set_target_angular_velocity(angular)
+        self.rest_since = None
         return multiplier
