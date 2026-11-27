@@ -1,5 +1,6 @@
 """Check the installed ASURT release and hand off updates to an interactive terminal."""
 
+import argparse
 import base64
 import hashlib
 from itertools import count
@@ -13,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from threading import Thread
-from time import sleep
+from time import monotonic, sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import urlopen
@@ -212,44 +213,81 @@ def check_updates(state, *, branch=None, strict=False):
     return (latest, maps) if latest or maps else None
 
 
-def terminal_command(root, platform, branch=None, *, add_wslg=False):
+def updater_command(root, branch, *, add_wslg):
     command = ["/bin/bash", str(root / "bin/asurt"), "exec", "/usr/bin/python3", str(Path(__file__).resolve())]
     command.append("--reopen-manager")
     if branch:
         command.extend(("--channel", branch))
     if add_wslg:
         command.append("--add-wslg")
-    if platform == "windows":
-        if not (root / "bin/Install-ASURT.ps1").is_file():
-            raise RuntimeError("The bundled Windows installer is missing.")
-        distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu-22.04")
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+", distro):
-            raise ValueError("Invalid WSL distribution name.")
-        arguments = subprocess.list2cmdline(["-d", distro, "--", *command])
-        quoted = "'" + arguments.replace("'", "''") + "'"
-        script = ("$ErrorActionPreference='Stop'; $wsl=Join-Path ([Environment]::SystemDirectory) 'wsl.exe'; "
-                  "Start-Process -FilePath $wsl "
-                  f"-ArgumentList {quoted} -WindowStyle Normal")
-        encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-        return [powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
-    if not (root / "bin/Install-ASURT.sh").is_file():
-        raise RuntimeError("The bundled Ubuntu installer is missing.")
-    terminal = shutil.which("gnome-terminal")
-    if terminal:
-        return [terminal, "--", *command]
-    terminal = shutil.which("x-terminal-emulator")
-    if terminal:
-        return [terminal, "-e", *command]
-    raise RuntimeError("No desktop terminal is available to run the ASURT installer.")
+    return command
+
+
+def windows_terminal(command):
+    distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu-22.04")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", distro):
+        raise ValueError("Invalid WSL distribution name.")
+    arguments = subprocess.list2cmdline(["-d", distro, "--", *command])
+    quoted = "'" + arguments.replace("'", "''") + "'"
+    script = ("$ErrorActionPreference='Stop'; $wsl=Join-Path ([Environment]::SystemDirectory) 'wsl.exe'; "
+              "Start-Process -FilePath $wsl "
+              f"-ArgumentList {quoted} -WindowStyle Normal")
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+    return [powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+
+
+def linux_terminal(command, state):
+    terminals = []
+    for name, options in (("gnome-terminal", ("--window", "--title=ASURT Update", "--")),
+                          ("x-terminal-emulator", ("-e",))):
+        if binary := shutil.which(name):
+            terminals.append([binary, *options])
+    if not terminals:
+        raise RuntimeError("No desktop terminal is available to run the ASURT installer.")
+
+    env = dict(os.environ)
+    for variable in ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "PYTHONHOME", "PYTHONPATH"):
+        env.pop(variable, None)
+    log = state / "log/carla/tools/installer-terminal.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    for terminal in terminals:
+        with tempfile.TemporaryDirectory(prefix="asurt-installer-") as directory, log.open("ab") as output:
+            pending = Path(directory) / "pending"
+            started = pending.with_name("started")
+            pending.touch()
+            output.write(f"Opening the installer with {terminal[0]}\n".encode())
+            output.flush()
+            try:
+                process = subprocess.Popen([*terminal, *command, "--terminal-token", pending], env=env,
+                                           stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                                           start_new_session=True)
+                deadline = monotonic() + 12
+                while monotonic() < deadline and process.poll() in (None, 0):
+                    if started.is_file():
+                        return
+                    sleep(.1)
+            except OSError as error:
+                output.write(f"{error}\n".encode())
+            # The worker claims this token before stopping CARLA. If the launch
+            # timed out, removing it prevents a delayed window starting twice.
+            try:
+                pending.unlink()
+            except FileNotFoundError:
+                if started.is_file():
+                    return
+    raise RuntimeError(f"The installer did not open an interactive terminal. See {log}.")
 
 
 def launch_terminal(root, platform, branch=None, *, add_wslg=False):
-    command = terminal_command(root, platform, branch, add_wslg=add_wslg)
-    if platform == "windows" or Path(command[0]).name == "gnome-terminal":
-        # These launchers return after handing off to the interactive terminal.
-        subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=10)
+    installer = "Install-ASURT.ps1" if platform == "windows" else "Install-ASURT.sh"
+    if not (root / "bin" / installer).is_file():
+        raise RuntimeError(f"The bundled {installer} is missing.")
+    command = updater_command(root, branch, add_wslg=add_wslg)
+    if platform == "windows":
+        subprocess.run(windows_terminal(command), stdin=subprocess.DEVNULL, capture_output=True,
+                       check=True, timeout=10)
     else:
-        subprocess.Popen(command, stdin=subprocess.DEVNULL, start_new_session=True)
+        linux_terminal(command, Path(os.environ["ASURT_STATE_ROOT"]))
 
 
 def open_channel_settings(parent, *, check_now=False):
@@ -321,12 +359,33 @@ def open_channel_settings(parent, *, check_now=False):
                         "ASURT updates available", update_details(*updates), parent=window):
                     status.set(f"Updates available on {label}.")
                     return
-                try:
-                    launch_terminal(Path(os.environ["ASURT_ROOT"]), installed["platform"], branch)
-                except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-                    status.set(f"Could not start the installer: {error}")
-                else:
-                    status.set(f"Installing the {label} update in the terminal.")
+                status.set("Opening the installer terminal…")
+                choice.configure(state="disabled")
+                button.configure(state="disabled")
+
+                def open_terminal():
+                    try:
+                        launch_terminal(Path(os.environ["ASURT_ROOT"]), installed["platform"], branch)
+                    except (OSError, KeyError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+                        result.put(error)
+                    else:
+                        result.put(None)
+
+                def report_terminal():
+                    try:
+                        error = result.get_nowait()
+                    except Empty:
+                        window.after(100, report_terminal)
+                        return
+                    choice.configure(state="readonly")
+                    button.configure(state="normal")
+                    if error:
+                        status.set(f"Could not start the installer: {error}")
+                    else:
+                        status.set(f"Installing the {label} update in the terminal.")
+
+                Thread(target=open_terminal, daemon=True).start()
+                window.after(100, report_terminal)
 
         Thread(target=fetch, daemon=True).start()
         window.after(100, finish)
@@ -422,32 +481,36 @@ def installer_command(root, state, installed, branch=None, *, add_wslg=False):
 
 
 def main():
-    from session import stop_for_update
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--channel", choices=CHANNELS)
+    parser.add_argument("--add-wslg", action="store_true")
+    parser.add_argument("--reopen-manager", action="store_true")
+    parser.add_argument("--terminal-token", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
     state = Path(os.environ["ASURT_STATE_ROOT"])
     root = Path(os.environ["ASURT_ROOT"])
+    terminal_claimed = not args.terminal_token
     try:
+        if args.terminal_token:
+            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+                raise RuntimeError("The installer requires an interactive terminal.")
+            args.terminal_token.rename(args.terminal_token.with_name("started"))
+            terminal_claimed = True
+        from session import stop_for_update
+
         installed = receipt(state)
         if not installed:
             raise RuntimeError("ASURT release information is missing. Run your installer once.")
-        branch = None
-        args = sys.argv[1:]
-        add_wslg = "--add-wslg" in args
-        plain = [arg for arg in args if arg not in ("--add-wslg", "--reopen-manager")]
-        if plain:
-            if len(plain) != 2 or plain[0] != "--channel" or plain[1] not in CHANNELS:
-                raise ValueError("Invalid installer channel request.")
-            branch = plain[1]
-        if add_wslg and installed["platform"] != "windows":
+        if args.add_wslg and installed["platform"] != "windows":
             raise ValueError("WSLg is available on Windows.")
-        command = installer_command(root, state, installed, branch, add_wslg=add_wslg)
+        command = installer_command(root, state, installed, args.channel, add_wslg=args.add_wslg)
         print("Closing the ASURT simulator and tools before updating…", flush=True)
         stop_for_update()
         print("Starting the ASURT installer…", flush=True)
         result = subprocess.call(command)
         if result:
             print(f"The installer exited with code {result}.", file=sys.stderr)
-        elif "--reopen-manager" in args:
+        elif args.reopen_manager:
             launcher = state.parent / "current/bin/asurt"
             env = dict(os.environ)
             env.pop("ASURT_ROOT", None)
@@ -458,11 +521,11 @@ def main():
             except OSError as error:
                 print(f"The update installed. Could not reopen System Manager: {error}", file=sys.stderr)
         return result
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
+    except (OSError, ImportError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"ASURT update: {error}", file=sys.stderr)
         return 1
     finally:
-        if sys.stdin.isatty():
+        if terminal_claimed and sys.stdin.isatty():
             try:
                 input("Press Enter to close this terminal.")
             except EOFError:

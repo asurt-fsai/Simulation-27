@@ -230,6 +230,51 @@ class ReleaseUpdateTest(unittest.TestCase):
             self.assertEqual(update.run_manager(["manager"]), 0)
             manager.terminate.assert_called_once()
 
+    def test_ubuntu_terminal_acknowledgement_uses_clean_desktop_environment(self):
+        def opened(command, **options):
+            self.assertEqual(command[:4], ["/usr/bin/gnome-terminal", "--window", "--title=ASURT Update", "--"])
+            self.assertEqual(command[-3:-1], ["fake-installer", "--terminal-token"])
+            self.assertNotIn("LD_LIBRARY_PATH", options["env"])
+            self.assertEqual(options["env"]["DISPLAY"], ":0")
+            command[-1].rename(command[-1].with_name("started"))
+            return SimpleNamespace(poll=lambda: 0)
+
+        with patch.dict("os.environ", {"DISPLAY": ":0", "LD_LIBRARY_PATH": "/asurt/ros/lib"}), \
+             patch("release_update.shutil.which", side_effect=lambda name: "/usr/bin/" + name), \
+             patch("release_update.subprocess.Popen", side_effect=opened) as spawn:
+            update.linux_terminal(["fake-installer"], self.state)
+        spawn.assert_called_once()
+
+    def test_terminal_exit_zero_without_a_worker_tries_fallback_before_reporting_success(self):
+        tokens = []
+
+        def opened(command, **_):
+            token = command[-1]
+            tokens.append(token)
+            if len(tokens) == 2:
+                self.assertFalse(tokens[0].exists())
+                self.assertEqual(command[:2], ["/usr/bin/x-terminal-emulator", "-e"])
+                token.rename(token.with_name("started"))
+            return SimpleNamespace(poll=lambda: 0)
+
+        with patch("release_update.shutil.which", side_effect=lambda name: "/usr/bin/" + name), \
+             patch("release_update.subprocess.Popen", side_effect=opened), \
+             patch("release_update.monotonic", side_effect=iter(range(0, 60, 13))):
+            update.linux_terminal(["fake-installer"], self.state)
+        self.assertEqual(len(tokens), 2)
+
+    def test_timed_out_interactive_worker_cannot_stop_simulator(self):
+        stop = SimpleNamespace(stop_for_update=lambda: self.fail("The cancelled worker stopped CARLA"))
+        config = {"ASURT_ROOT": str(self.root), "ASURT_STATE_ROOT": str(self.state)}
+        missing = self.root / "expired" / "pending"
+        with patch.dict("os.environ", config), patch.dict(sys.modules, {"session": stop}), \
+             patch.object(sys, "argv", ["release_update.py", "--terminal-token", str(missing)]), \
+             patch.object(sys.stdin, "isatty", return_value=True), \
+             patch.object(sys.stdout, "isatty", return_value=True), \
+             patch("release_update.subprocess.call") as installer:
+            self.assertEqual(update.main(), 1)
+        installer.assert_not_called()
+
     def test_update_reopens_the_current_manager_after_success(self):
         active = self.root / "installations/old"
         env = {"ASURT_ROOT": str(active), "ASURT_STATE_ROOT": str(self.state)}
