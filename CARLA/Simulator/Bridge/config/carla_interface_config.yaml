@@ -153,24 +153,24 @@ vehicle:
     max_rpm: 4000.0          # Saietta 119R-68 maximum motor RPM
     moi: 0.01                  # engine moment of inertia (kg*m^2)
 
-    damping_rate_full_throttle:                   0.15
-    # Nonzero so a lifted-throttle driveline actually decays; at 0.0 a coasting
-    # car never slows and the low-speed creep chatters.
-    damping_rate_zero_throttle_clutch_engaged:    0.5
-    damping_rate_zero_throttle_clutch_disengaged: 0.5
+    # The HiL electric motor uses low internal friction. Keep PhysX's
+    # extra full-throttle damping small and retain modest coast damping.
+    damping_rate_full_throttle:                   0.0003
+    damping_rate_zero_throttle_clutch_engaged:    0.015
+    damping_rate_zero_throttle_clutch_disengaged: 0.015
 
-    # IMechE HiL map, with the collinear 2800 RPM knot removed for PhysX.
-    # Higher-RPM torque is scaled to keep interpolated shaft power under the
-    # published 5 kW electrical ceiling. Actual motor efficiency is unknown.
+    # Reference envelope from the published peak torque, 4,000 rpm limit
+    # and 5 kW electrical ceiling. Interpolated shaft power peaks at 4.89 kW.
+    # The competition controller's measured torque-speed curve is unavailable.
     torque_curve:
       - [0.0,    55.7]
-      - [1050.0, 42.857143]
-      - [1400.0, 32.065859]
-      - [1750.0, 26.721549]
-      - [2100.0, 22.713317]
-      - [2450.0, 13.360774]
-      - [3150.0,  2.672155]
-      - [4000.0,  0.093525]
+      - [820.0,  55.7]
+      - [1100.0, 41.5]
+      - [1500.0, 30.3]
+      - [2000.0, 22.9]
+      - [2650.0, 17.3]
+      - [3300.0, 14.0]
+      - [4000.0, 11.6]
 
     # Steering limit curve: [[speed_kmh, max_steer_fraction], ...]
     # Full calibrated steering range across the speed band.
@@ -185,28 +185,28 @@ vehicle:
     wheels:
       - position: "FL"                 # front-left
         tire_friction: 1.0
-        damping_rate: 1.0
+        damping_rate: 0.006            # supplemental wheel rotational damping
         max_steer_angle: 30.0          # degrees
         radius: 25.83684               # Toyo 225/45R13 rolling radius, 616 rev/km
         max_brake_torque: 300.0       # N*m
         max_handbrake_torque: 500.0   # N*m
       - position: "FR"                 # front-right
         tire_friction: 1.0
-        damping_rate: 1.0
+        damping_rate: 0.006
         max_steer_angle: 30.0
         radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RL"                 # rear-left
         tire_friction: 1.0
-        damping_rate: 1.0
+        damping_rate: 0.006
         max_steer_angle: 0.0
         radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RR"                 # rear-right
         tire_friction: 1.0
-        damping_rate: 1.0
+        damping_rate: 0.006
         max_steer_angle: 0.0
         radius: 25.83684
         max_brake_torque: 300.0
