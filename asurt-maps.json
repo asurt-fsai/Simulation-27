@@ -5,16 +5,17 @@
       "id": "silverstone-section",
       "label": "Silverstone Split",
       "file": "silverstone-section.zip",
-      "sha256": "6730d693b998ea62cb1a2494fa09d55cf7f1d57061903215fdff3a1a26178c5a",
-      "bytes": 132741632,
-      "tag": "v0.1.36-flat",
+      "sha256": "e4a59e4ce2545e860efe31d5c220fd14d05ff87f92a2b574314aca4bd8bf0015",
+      "bytes": 134104140,
+      "tag": "v0.1.46-flat",
       "base_sha256": {
         "WindowsNoEditor": "68be23510e1a5c8d942a6058656e3d204ad5f233631492749948132df71150e1",
         "LinuxNoEditor": "55945001eb3cec7f2281b966d42ef364f4580c9c9b243ad8f2bc687e0ffc8b9a"
       },
       "replaces_sha256": [
         "b5f2a86fcca53e28c5da990f4b3ba93cd18617b2ada677da47810d1f6ac24ff0",
-        "8235c073f45579db0c75803e22c255a16b965ed0164cb36044c79c003e6ab7e8"
+        "8235c073f45579db0c75803e22c255a16b965ed0164cb36044c79c003e6ab7e8",
+        "6730d693b998ea62cb1a2494fa09d55cf7f1d57061903215fdff3a1a26178c5a"
       ]
     }
   ]
