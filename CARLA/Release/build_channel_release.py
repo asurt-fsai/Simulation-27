@@ -100,6 +100,8 @@ def main():
                         help="Add verification for startup files from the verified base archives.")
     parser.add_argument("--bridge-binary", type=Path,
                         help="Matching Ubuntu bridge rebuilt for steering feedback changes.")
+    parser.add_argument("--cooked-runtime-directory", type=Path,
+                        help="Attach the pinned Windows and Ubuntu runtime archives to this channel release.")
     args = parser.parse_args()
     testing = args.branch == "testing"
     if not re.fullmatch(r"testing-\d+" if testing else r"v\d+\.\d+\.\d+-flat", args.tag):
@@ -112,6 +114,13 @@ def main():
     if any(manifest["stack_patch"].get(key) != value for key, value in builder.item(args.base_patch).items()):
         raise ValueError("The baseline stack patch failed verification.")
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.cooked_runtime_directory:
+        for asset in manifest["runtime"].values():
+            archive = args.cooked_runtime_directory / asset["file"]
+            if archive.stat().st_size != asset["bytes"] or builder.digest(archive) != asset["sha256"]:
+                raise ValueError(f"The runtime archive failed verification: {archive.name}")
+            builder.copy(archive, args.output / archive.name)
+            asset["tag"] = args.tag
     builder.write_installers(args.output, branch=args.branch)
     builder.copy(builder.HERE / "asurt_update.py", args.output / "asurt_update.py")
     builder.copy(builder.REPOSITORY / "asurt-maps.json", args.output / "asurt-maps.json")

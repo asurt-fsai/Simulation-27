@@ -2,4 +2,7 @@
 *.ps1 text eol=lf
 CARLA/Release/asurt text eol=lf
 CARLA/Release/dev-build text eol=lf
+CARLA/Modules/Control/Launch/fs26_control_pair.py text eol=lf
+CARLA/Modules/PathPlanning/Launch/classical_goal.py text eol=lf
+CARLA/Modules/Control/Launch/fs26_simple_bootstrap.py text eol=lf
 CARLA/Modules/**/LegacyFS26/** -text

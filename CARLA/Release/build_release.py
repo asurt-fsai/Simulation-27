@@ -156,7 +156,8 @@ def stage_fs26(stack):
         entry = destination / "lib" / package / executable
         entry.parent.mkdir(parents=True, exist_ok=True)
         if executable == "simple_pp_node":
-            copy(source / "Control/Launch/fs26_simple_bootstrap.py", entry)
+            entry.write_text((source / "Control/Launch/fs26_simple_bootstrap.py").read_text(
+                encoding="utf-8"), encoding="utf-8", newline="\n")
         else:
             entry.write_text(f"#!/usr/bin/python3\nfrom {module} import main\n\nmain()\n", encoding="utf-8")
         entry.chmod(0o755)
@@ -165,10 +166,12 @@ def stage_fs26(stack):
             relative = Path(group) / "Launch" / script
             copy(source / relative, systems / relative)
     control_pair = runtime / "control_pair"
-    copy(source / "Control/Launch/fs26_control_pair.py", control_pair)
+    control_pair.write_text((source / "Control/Launch/fs26_control_pair.py").read_text(
+        encoding="utf-8"), encoding="utf-8", newline="\n")
     control_pair.chmod(0o755)
     goal = runtime / "classical_goal"
-    copy(source / "PathPlanning/Launch/classical_goal.py", goal)
+    goal.write_text((source / "PathPlanning/Launch/classical_goal.py").read_text(
+        encoding="utf-8"), encoding="utf-8", newline="\n")
     goal.chmod(0o755)
     dependencies = runtime / "dependencies"
     with tempfile.TemporaryDirectory() as temp:
@@ -257,15 +260,17 @@ if os.environ["ASURT_PROFILE"] == "windows":
                     env.update(wake_novnc())
                     env.pop("WAYLAND_DISPLAY", None)
                     env.pop("XAUTHORITY", None)
-                if profile == "linux":
+                kernel = os.uname().release.casefold()
+                linux_on_wsl = profile == "linux" and ("microsoft-standard" in kernel or "wsl2" in kernel)
+                if profile == "linux" and not linux_on_wsl:
                     from native_vulkan import native_vulkan_environment
                     server_env, renderer = native_vulkan_environment(env)
                     print(f"ASURT Ubuntu Vulkan renderer: {renderer}", flush=True)
-                elif profile in ("wslg", "novnc"):
+                elif profile in ("wslg", "novnc") or linux_on_wsl:
                     dozen = Path.home() / ".local/opt/asurt-dozen-20261024/scripts/run-dozen.sh"
                     if not dozen.is_file():
-                        raise RuntimeError("Mesa Dozen is missing. Rerun the Windows installer.")
-                    launch.insert(0, dozen)
+                        raise RuntimeError("Mesa Dozen is missing. Rerun the ASURT installer in WSL.")
+                    launch[:0] = [dozen, "--variant", "descriptor-reset-candidate"]
                     # Use a session-local Engine.ini for Shipping builds that ignore -ini.
                     cvars = {"r.RHICmdBypass": 0, "r.RHICmdUseThread": 1,
                              "r.RHICmdUseParallelAlgorithms": 1, "r.RHICmdUseDeferredContexts": 1,

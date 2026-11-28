@@ -525,10 +525,12 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
         startup_error.unlink(missing_ok=True)
 
         def report_failure(exc):
-            session["phase"] = "failed"
+            message = str(exc).splitlines()[0]
+            session.update(phase="failed", error=message)
             record_session(session)
+            (run_dir / "session.json").write_text(session_file().read_text())
             temporary = startup_error.with_suffix(".next")
-            temporary.write_text(json.dumps({"message": str(exc).splitlines()[0],
+            temporary.write_text(json.dumps({"message": message,
                                              "log": str(run_dir), "map_key": map_key, "profile": profile}))
             temporary.replace(startup_error)
 
@@ -590,6 +592,7 @@ def supervisor(profile, candidate, acceptance, packed_candidate=False, map_key="
                         raise RuntimeError(f"Unexpected world settings: {settings}")
                     hero = next(actor for actor in world.get_actors().filter(HERO)
                                 if actor.attributes.get("role_name") == "hero")
+                    session["hero_actor_id"] = hero.id
                     weather_grip = WeatherGrip(world, hero)
                     road_weather = RoadWeather(run_dir)
                     road_weather.update(world)

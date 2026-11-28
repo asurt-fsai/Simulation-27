@@ -569,13 +569,10 @@ def prepare_inference(root, stack):
     return target
 
 
-def enable_dynamic_prop_sensor_trace(runtime):
-    """Give movable cone meshes the same CARLA sensor response as static cones."""
-    config = runtime / "CarlaUE4/Config/DefaultEngine.ini"
-    data = config.read_bytes()
+def sensor_trace_config(data):
     header = re.search(rb"(?m)^\[/Script/Engine\.CollisionProfile\][ \t]*(\r?\n)", data)
     if header is None:
-        raise ValueError(f"CARLA collision profiles are missing from {config}")
+        raise ValueError("CARLA collision profiles are missing")
     start = header.end()
     end = data.find(b"\n[", start - 1)
     end = end + 1 if end >= 0 else len(data)
@@ -591,13 +588,70 @@ def enable_dynamic_prop_sensor_trace(runtime):
     else:
         profiles = (b'+EditProfiles=(Name="PhysicsActor",CustomResponses=('
                     + sensor + b'))' + header.group(1) + profiles)
-    updated = data[:start] + profiles + data[end:]
+    return data[:start] + profiles + data[end:]
+
+
+def enable_dynamic_prop_sensor_trace(runtime):
+    """Give movable cone meshes the same CARLA sensor response as static cones."""
+    config = runtime / "CarlaUE4/Config/DefaultEngine.ini"
+    data = config.read_bytes()
+    updated = sensor_trace_config(data)
     if updated != data:
         with tempfile.TemporaryDirectory(dir=config.parent) as temporary:
             staged = Path(temporary) / config.name
             staged.write_bytes(updated)
             shutil.copymode(config, staged)
             staged.replace(config)
+
+
+def matches_runtime_archive(runtime, archive):
+    entries = list(runtime.rglob("*"))
+    if any(path.is_symlink() or not (path.is_dir() or path.is_file()) for path in entries):
+        return False
+    remaining = {path.relative_to(runtime).as_posix() for path in entries if path.is_file()}
+    with tarfile.open(archive, "r:gz") as bundle:
+        for item in bundle:
+            if item.isdir():
+                continue
+            relative = PurePosixPath(item.name).as_posix()
+            if not item.isfile() or relative not in remaining:
+                return False
+            remaining.remove(relative)
+            with bundle.extractfile(item) as packaged:
+                local = runtime / relative
+                if relative.endswith("CarlaUE4/Config/DefaultEngine.ini"):
+                    original = packaged.read()
+                    if local.read_bytes() not in (original, sensor_trace_config(original)):
+                        return False
+                else:
+                    packaged_sha = hashlib.sha256()
+                    for chunk in iter(lambda: packaged.read(1024 * 1024), b""):
+                        packaged_sha.update(chunk)
+                    if local.stat().st_size == item.size and packaged_sha.hexdigest() == digest(local):
+                        continue
+                    return False
+    return not remaining
+
+
+def prune_superseded_runtimes(cache, current, asset):
+    """Only retire managed copies that still match their verified installer archive."""
+    for archive in cache.glob(f"*-{asset['file']}"):
+        checksum = archive.name.split("-", 1)[0]
+        if not SHA.fullmatch(checksum) or checksum == current.name or archive.is_symlink():
+            continue
+        old = current.with_name(checksum)
+        try:
+            if not archive.is_file() or digest(archive) != checksum:
+                continue
+            if os.path.lexists(old):
+                if old.is_symlink() or not old.is_dir() or not matches_runtime_archive(old, archive):
+                    continue
+                with tempfile.TemporaryDirectory(prefix=".retired-", dir=current.parent) as stage:
+                    old.rename(Path(stage) / checksum)
+            archive.unlink()
+            print(f"Removed superseded {asset['file']} ({checksum[:12]}).", flush=True)
+        except (OSError, ValueError, tarfile.TarError) as error:
+            print(f"Could not remove a superseded CARLA runtime: {error}", file=sys.stderr)
 
 
 def verify_installation(candidate, settings, cuda_root):
@@ -784,6 +838,8 @@ def update_maps(args, root, runtime, wsl_runtime=None):
         for platform, game in matching.items():
             check_base(definition, platform, game)
         register(archive, registry, replaces=replaces)
+        for checksum in replaces:
+            (root / "cache" / f"{checksum}-{item['file']}").unlink(missing_ok=True)
         print(f'Added {item["label"]}.')
     if args.maps == "all" and catalog["maps"] and compatible_count == 0:
         raise ValueError("No map pack in the catalog matches the installed CARLA runtime.")
@@ -961,6 +1017,9 @@ def main():
                 raise RuntimeError(f"Base and tools installed. The requested map packs could not be installed: {error}") from error
             print(f"Base and tools installed. Silverstone or another optional map could not be installed: {error}\n"
                   "Rerun the installer with --maps all (Windows: -Maps all) to retry.", file=sys.stderr)
+        prune_superseded_runtimes(cache, runtime, runtime_asset)
+        if wsl_runtime:
+            prune_superseded_runtimes(cache, wsl_runtime, wsl_asset)
         if args.platform == "linux" and not args.no_shortcuts:
             linux_shortcuts(root)
     print(f"ASURT is ready at {root}.")

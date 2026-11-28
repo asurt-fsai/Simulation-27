@@ -319,7 +319,7 @@ odometry:
 
   # Publish rate (Hz).  20 Hz is sufficient for most planning stacks.
   update_rate: 50.0
-  qos_reliability: "BEST_EFFORT"
+  qos_reliability: "RELIABLE"
 
   # Publish exactly one message per source sample, at that sample's own stamp.
   #

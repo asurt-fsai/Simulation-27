@@ -724,9 +724,9 @@ class KeyboardControl(object):
 
                 # Speed limiter: cap manual driving at the configured max velocity.
                 if self._max_velocity_ms > 0.0:
-                    vel = world.player.get_velocity()
-                    speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
                     if not self._ackermann_enabled:
+                        vel = world.player.get_velocity()
+                        speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
                         if speed >= self._max_velocity_ms:
                             self._control.throttle = 0.0
                     else:

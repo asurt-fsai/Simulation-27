@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,11 +15,41 @@ from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Simulator/Launchers"))
 import release_update as update
+import asurt_update
 from asurt_update import add_ros_bags_to_edited_manager, record_release, select_release_repository
 from types import SimpleNamespace
 
 
 class ReleaseUpdateTest(unittest.TestCase):
+    def test_runtime_cleanup_preserves_local_content_and_removes_only_verified_copies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "FlatAsphalt.umap").write_bytes(b"shipped map")
+            archive = root / "runtime.tar.gz"
+            with tarfile.open(archive, "w:gz") as package:
+                package.add(source / "FlatAsphalt.umap", arcname="FlatAsphalt.umap")
+            checksum = asurt_update.digest(archive)
+            cache = root / "cache"
+            cache.mkdir()
+            cached = cache / f"{checksum}-{archive.name}"
+            archive.rename(cached)
+            active = root / "runtimes" / ("f" * 64)
+            active.mkdir(parents=True)
+            old = active.with_name(checksum)
+            asurt_update.extract(cached, old)
+            custom = old / "LocalTrack.umap"
+            custom.touch()
+            asurt_update.prune_superseded_runtimes(cache, active, {"file": archive.name})
+            self.assertTrue(custom.is_file())
+            self.assertTrue(cached.is_file())
+            custom.unlink()
+            asurt_update.prune_superseded_runtimes(cache, active, {"file": archive.name})
+            self.assertFalse(old.exists())
+            self.assertFalse(cached.exists())
+            self.assertTrue(active.is_dir())
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

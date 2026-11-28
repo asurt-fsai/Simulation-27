@@ -4,7 +4,7 @@ The installer downloads the cooked simulator, the compatible CARLA client, the R
 
 ## Install
 
-Use Ubuntu 22.04 x86-64 with a working desktop and Vulkan driver, or Windows x64. The Windows installer provisions WSL2 and Ubuntu 22.04 for the ROS bridge and tools. A first Windows setup can require a reboot and creation of the Ubuntu user. Native Windows is the default simulator. Select the optional WSLg renderer in the installer or add it from System Manager later. WSLg CARLA uses the isolated Dozen driver. On WSL NAT networks, firewall authorization is scoped to the native executable, its three RPC and streaming ports, and the current WSL address. If that address changes and connection fails, rerun the installer.
+Use Ubuntu 22.04 x86-64 with a working desktop and Vulkan driver, or Windows x64. The Windows installer provisions WSL2 and Ubuntu 22.04 for the ROS bridge and tools. A first Windows setup can require a reboot and creation of the Ubuntu user. Native Windows is the default simulator. The installer provisions the isolated Mesa Dozen driver and reports which Windows GPU models are available through it. Select the optional WSLg runtime in the installer or add it from System Manager later. On WSL NAT networks, firewall authorization is scoped to the native executable, its three RPC and streaming ports, and the current WSL address. If that address changes and connection fails, rerun the installer.
 
 ```bash
 bash Install-ASURT.sh
@@ -101,6 +101,8 @@ continues to use its selected executable after an upgrade.
 Attach `Install-ASURT.ps1`, `Install-ASURT.sh`, `asurt-release.json`, `asurt_update.py`, both `ASURT-FlatAsphalt-*.tar.gz` runtimes, and `ASURT-Stack-Ubuntu-22.04-x64.tar.gz` to the same GitHub Release in `asurt-fsai/Simulation-27`. Also attach the Linux x86-64 CARLA wheel for teammates writing Python 3.10 clients. The installed stack includes that client. Keep `asurt-maps.json` at the Git repository root. A maps-only release should leave the installer release marked Latest.
 
 Each simulator runtime and the module/tool stack has a separate SHA-256 in `asurt-release.json`. Updating the stack reuses an unchanged simulator. Existing settings and registered maps live outside versioned installations. Stop the simulator before activating an update.
+
+After installing a replacement simulator, the updater retires older runtime copies that match their verified cached archives. It keeps runtime directories containing local changes and leaves registered map ZIPs and editable assets in the workspace.
 
 A small stack update can pin the previous stack asset by release tag and supply a verified
 `stack_patch` archive. The installer applies it to a new stack before activating the version.

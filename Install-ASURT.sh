@@ -28,6 +28,12 @@ while (($#)); do
     esac
 done
 
+wsl2=false
+kernel_release=$(uname -r)
+if [[ "$kernel_release" == *microsoft-standard* || "$kernel_release" == *WSL2* ]]; then
+    wsl2=true
+fi
+
 public=false
 [[ "${repository,,}" != 'asurt-fsai/simulation-27' ]] || public=true
 if [[ "$public" == true && "$branch" != main && "$branch" != testing ]]; then
@@ -254,13 +260,14 @@ if not isinstance(packages, list) or not all(isinstance(p, str) and re.fullmatch
 print("\n".join(packages))
 PY
     mapfile -t packages <"$temp/ubuntu-packages.txt"
-    if [[ "$platform" == windows ]]; then
+    if [[ "$platform" == windows || "$wsl2" == true ]]; then
         packages+=(vulkan-tools libdrm2 libxcb1 libx11-xcb1 libxcb-dri3-0 libxcb-present0
             libxcb-xfixes0 libxcb-sync1 libxcb-randr0 libxcb-shm0 libxshmfence1 libexpat1 zlib1g libzstd1)
         if [[ "$with_wsl_runtime" == true && -f "$root/.private-viewer" ]]; then
             packages+=(tigervnc-standalone-server novnc websockify x11-utils openbox)
         fi
-    else
+    fi
+    if [[ "$platform" == linux ]]; then
         packages+=(xterm)
     fi
     missing=()
@@ -272,8 +279,8 @@ PY
         apt_for_asurt install -y "${missing[@]}"
     fi
 fi
-if [[ "$platform" == windows && "$with_wsl_runtime" == true && "$skip_dependencies" == false ]]; then
-    [[ $(uname -r) == *microsoft-standard* || $(uname -r) == *WSL2* ]] || {
+if [[ "$skip_dependencies" == false && ( "$platform" == windows || "$wsl2" == true ) ]]; then
+    [[ "$wsl2" == true ]] || {
         echo 'The Windows installation must run inside Ubuntu on WSL2.' >&2
         exit 2
     }
@@ -314,10 +321,23 @@ PY
     expected_driver=cce0e8ac41b33b179c58e1a315c94d153fe1a7f031e57d09585a7d20616ccf78
     printf '%s  %s\n' "$expected_driver" "$kit/variants/descriptor-reset-candidate/lib/x86_64-linux-gnu/libvulkan_dzn.so" | sha256sum --check
     bash "$kit/scripts/verify.sh" --files-only
-    if "$kit/scripts/run-dozen.sh" vulkaninfo --summary >"$temp/dozen-vulkan.log" 2>&1 &&
-       grep -Eiq 'deviceName[[:space:]]*=[[:space:]]*Microsoft Direct3D12' "$temp/dozen-vulkan.log" &&
-       grep -Eiq 'driverName[[:space:]]*=[[:space:]]*Dozen' "$temp/dozen-vulkan.log"; then
-        echo 'WSL2 sees the Windows GPU through Mesa Dozen.'
+    if timeout 30 "$kit/scripts/run-dozen.sh" --variant descriptor-reset-candidate vulkaninfo --summary >"$temp/dozen-vulkan.log" 2>&1 &&
+       adapters=$(awk '
+           function report() {
+               if (driver == "Dozen" &&
+                   (type == "PHYSICAL_DEVICE_TYPE_DISCRETE_GPU" || type == "PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU") &&
+                   name ~ /^Microsoft Direct3D12 \(.+\)$/ && name !~ /Microsoft Basic Render Driver/) {
+                   print "  " name " [" type "]"
+                   found = 1
+               }
+           }
+           /^GPU[0-9]+:/ { report(); driver = type = name = ""; device = 1; next }
+           device && /^[[:space:]]*driverName[[:space:]]*=/ { sub(/^[^=]+=[[:space:]]*/, ""); driver = $0 }
+           device && /^[[:space:]]*deviceType[[:space:]]*=/ { sub(/^[^=]+=[[:space:]]*/, ""); type = $0 }
+           device && /^[[:space:]]*deviceName[[:space:]]*=/ { sub(/^[^=]+=[[:space:]]*/, ""); name = $0 }
+           END { report(); exit !found }
+       ' "$temp/dozen-vulkan.log"); then
+        printf 'WSL2 Mesa Dozen hardware adapters:\n%s\n' "$adapters"
     else
         cat "$temp/dozen-vulkan.log" >&2
         echo 'The Dozen files are installed. WSLg CARLA needs a working Windows GPU driver with WSL GPU support.' >&2

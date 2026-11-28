@@ -48,7 +48,7 @@ if [[ -n "$cuda_root" && -d "$cuda_root/onnxruntime" && ${CUDA_VISIBLE_DEVICES-a
         export LD_LIBRARY_PATH="$library_dir:$LD_LIBRARY_PATH"
     done
 fi
-export PYTHONPATH="/usr/lib/python3/dist-packages:${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu:$PYTHONPATH"
+export PYTHONPATH="$PYTHONPATH:/usr/lib/python3/dist-packages:${ASURT_CUDA_SITE:+$ASURT_CUDA_SITE:}$ort_cpu"
 action="${1:-start}"
 shift || true
 if [[ "$action" == tools ]]; then action=manager; fi
@@ -86,7 +86,20 @@ import tkinter
 import yaml
 from cv_bridge.boost.cv_bridge_boost import getCvType
 from PyQt5.QtWidgets import QApplication
+from rclpy.type_support import check_for_type_support
+from rosgraph_msgs.msg import Clock
 from scipy.spatial import cKDTree
+from sensor_msgs.msg import Image, PointCloud2
+from std_msgs.msg import Header
+
+for message_type in (Header, Clock, Image, PointCloud2):
+    try:
+        check_for_type_support(message_type)
+    except (AttributeError, ImportError) as error:
+        raise RuntimeError(
+            f"ROS 2 type support failed for {message_type.__name__} from "
+            f"{sys.modules[message_type.__module__].__file__}"
+        ) from error
 
 sys.path.insert(0, str(Path(os.environ['ASURT_ROOT']) / 'tools/Trackdraw/fs-trackdraw/src'))
 from trackdraw.window import TrackDrawWindow

@@ -202,11 +202,14 @@ def matches_files(content, files):
                for name, checksum in files.items())
 
 
-def can_replace_installed(pack, platform, content, target):
+def installed_files(content, target):
     entries = list(target.rglob("*"))
     if any(path.is_symlink() for path in entries):
-        return False
-    existing = {file.relative_to(content).as_posix() for file in entries if file.is_file()}
+        return None
+    return {file.relative_to(content).as_posix() for file in entries if file.is_file()}
+
+
+def can_replace_installed(pack, platform, content, existing):
     for archive in (pack.archive.parent / ".history").glob("*.zip"):
         if not SHA256.fullmatch(archive.stem) or file_digest(archive) != archive.stem:
             continue
@@ -226,9 +229,10 @@ def install(pack, platform, runtime):
     if target.parent.resolve() != content / "ASURTMaps" or target.is_symlink():
         raise ValueError("Map pack destination redirects outside the CARLA content directory.")
     replacing = target.exists()
-    if replacing and matches_files(content, payload["files"]):
+    existing = installed_files(content, target) if replacing else None
+    if replacing and existing == set(payload["files"]) and matches_files(content, payload["files"]):
         return
-    if replacing and not can_replace_installed(pack, platform, content, target):
+    if replacing and not can_replace_installed(pack, platform, content, existing):
         raise ValueError(f"Installed map content differs from a known revision: {target}")
     with tempfile.TemporaryDirectory(dir=runtime) as temporary:
         stage = Path(temporary) / target.name

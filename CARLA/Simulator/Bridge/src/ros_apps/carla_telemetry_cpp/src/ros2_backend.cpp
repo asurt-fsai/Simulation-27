@@ -1331,9 +1331,6 @@ void CarlaROS2Backend::publish_vehicle_feedback() {
   // ONE snapshot: each Get* below is a blocking server RPC
   double t_rpc;
   t_rpc = PerfMonitor::tick();
-  auto ctrl = v->GetControl();  // 1 RPC
-  perf.record("rpc.GetControl", t_rpc);
-  t_rpc = PerfMonitor::tick();
   auto telem = v->GetTelemetryData();  // 1 RPC
   perf.record("rpc.GetTelemetryData", t_rpc);
   // Frame the telemetry was served on. Read immediately AFTER the RPC returns,
@@ -1349,33 +1346,14 @@ void CarlaROS2Backend::publish_vehicle_feedback() {
   ensure_light_init(*v);           // 1 RPC once, then cached
   uint32_t ls = light_state_;
 
-  // Per-wheel steer angle (deg, CARLA sign) for the echo/JointState/Motors
-  // telemetry below. In ackermann_drive, the vehicle is driven via
-  // Vehicle::ApplyAckermannControl, and ctrl (= GetControl()) only reflects
-  // the real command "if the ackermann control is inactive" — i.e. it's
-  // stale here. Sample the real per-wheel angle via GetWheelSteerAngle
-  // instead (4 RPCs, telemetry thread only, 10 Hz). Other modes still derive
-  // it from ctrl.steer × max_steer_angle to avoid those RPCs, since ctrl is
-  // authoritative there.
-  float rawFL, rawFR, rawRL, rawRR;
-  bool ctrl_valid_for_telemetry = control_mode_.source != "ackermann_drive";
-  if (!ctrl_valid_for_telemetry) {
-    t_rpc = PerfMonitor::tick();
-    rawFL = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::FL_Wheel);
-    rawFR = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::FR_Wheel);
-    rawRL = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::BL_Wheel);
-    rawRR = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::BR_Wheel);
-    perf.record("rpc.GetWheelSteerAngle", t_rpc);
-  } else {
-    rawFL = ctrl.steer *
-            (phys.wheels.size() > 0 ? phys.wheels[0].max_steer_angle : 0.0f);
-    rawFR = ctrl.steer *
-            (phys.wheels.size() > 1 ? phys.wheels[1].max_steer_angle : 0.0f);
-    rawRL = ctrl.steer *
-            (phys.wheels.size() > 2 ? phys.wheels[2].max_steer_angle : 0.0f);
-    rawRR = ctrl.steer *
-            (phys.wheels.size() > 3 ? phys.wheels[3].max_steer_angle : 0.0f);
-  }
+  // Measured road-wheel angles differ across the axle in both control modes.
+  // Sample them on the 10 Hz telemetry thread in CARLA degrees.
+  t_rpc = PerfMonitor::tick();
+  const float rawFL = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::FL_Wheel);
+  const float rawFR = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::FR_Wheel);
+  const float rawRL = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::BL_Wheel);
+  const float rawRR = v->GetWheelSteerAngle(carla::rpc::VehicleWheelLocation::BR_Wheel);
+  perf.record("rpc.GetWheelSteerAngle", t_rpc);
   // Brake comes from GetTelemetryData(), which is sampled server-side after
   // CARLA's native Ackermann controller has run, so it is the brake actually
   // applied in every control mode. ctrl.brake (GetControl()) is only valid
