@@ -1,8 +1,8 @@
 {
   "windows": {
     "file": "ASURT-FlatAsphalt-Windows-x64.tar.gz",
-    "sha256": "f7a680fc381d37f7b3cd00c24e6bc71dca34fd40f7b369da114d3acafcdb8cc2",
-    "bytes": 154217107,
+    "sha256": "02faa32215495f6c4de80e2f4e7ceafb495f306ad18651a658cfc37c40407639",
+    "bytes": 153422667,
     "shipping_sha256": "68be23510e1a5c8d942a6058656e3d204ad5f233631492749948132df71150e1",
     "startup_files": {
       "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/FlatAsphalt.umap": "fab13c1896e4b6ecc1c1b1374b8e3d787727df5b4ba008f2dabc2fec2b7a4a4e",
@@ -13,17 +13,19 @@
       "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uasset": "d16f5e1e357e36cdb79fa63412490b1bc289ef9c53c6da9dabfeb18172e40746",
       "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uexp": "560ad004be0d2c463c77cdbae5c45b126051f5d839dc8eee5faa0f7f679d006b",
       "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.ubulk": "6a190e0874595b197ad1f29f93d9b2c6b0834f6a14e4678f05c1c26397052fd7",
-      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "a54f21bfc2f492a08ec3ee469532a5007d1542f1ea59bcb0683a44e6ace5b722",
-      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "f096a2bd0213b4aea4b81ae0e9dfd90f33c636c2d0e84c3286841baf14c2dc73",
-      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "eb2c590542419305e804360e337fe72fd11fcf334d03cce9433b594036d251eb",
-      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "46a318592df9c6822a95e27468a296872079d6df7bd574c288215f995b03defb"
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "3a42e9b129416e5550b7b75879d47c55eb19ba9c9ed142993dce27f69a9ce7ed",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "1b2bf01c4fbed303da1a3771879eb9ce0b7257caa59dc05ba8ba1774c7cc47a8",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "f204015ae7037dc07f3e17a49d3da43fef4403b4116cf1d7e3ec526ac9eb6cb3",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "645ea1459fd9c62d60f504b827125e49ccfb8d6112c32412e4b179b4bb131966",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/rear_fsai_wheel.uasset": "1655c4e662d2f54c82e7e158d6715bffe1bcedf6183ba876bae6941964c2ad20",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/rear_fsai_wheel.uexp": "88f52aac1df152ed544fb78df487b7b43984b65e73a6be2c38a23d619321086b"
     },
-    "tag": "testing-23"
+    "tag": "testing-26"
   },
   "linux": {
     "file": "ASURT-FlatAsphalt-Ubuntu-22.04-x64.tar.gz",
-    "sha256": "092088d7e857c68a4fbae14dde8dd13c31a72c4b9f9514879c08eba52a3e21b3",
-    "bytes": 164180928,
+    "sha256": "3362dd98041b8680f155b390668b648617853a736ead30634bab63ee783b3802",
+    "bytes": 163008167,
     "shipping_sha256": "55945001eb3cec7f2281b966d42ef364f4580c9c9b243ad8f2bc687e0ffc8b9a",
     "startup_files": {
       "CarlaUE4/Content/Carla/Maps/FlatAsphalt.umap": "fab13c1896e4b6ecc1c1b1374b8e3d787727df5b4ba008f2dabc2fec2b7a4a4e",
@@ -34,11 +36,13 @@
       "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uasset": "d16f5e1e357e36cdb79fa63412490b1bc289ef9c53c6da9dabfeb18172e40746",
       "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uexp": "560ad004be0d2c463c77cdbae5c45b126051f5d839dc8eee5faa0f7f679d006b",
       "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.ubulk": "6a190e0874595b197ad1f29f93d9b2c6b0834f6a14e4678f05c1c26397052fd7",
-      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "a54f21bfc2f492a08ec3ee469532a5007d1542f1ea59bcb0683a44e6ace5b722",
-      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "f096a2bd0213b4aea4b81ae0e9dfd90f33c636c2d0e84c3286841baf14c2dc73",
-      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "eb2c590542419305e804360e337fe72fd11fcf334d03cce9433b594036d251eb",
-      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "46a318592df9c6822a95e27468a296872079d6df7bd574c288215f995b03defb"
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "3a42e9b129416e5550b7b75879d47c55eb19ba9c9ed142993dce27f69a9ce7ed",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "1b2bf01c4fbed303da1a3771879eb9ce0b7257caa59dc05ba8ba1774c7cc47a8",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "f204015ae7037dc07f3e17a49d3da43fef4403b4116cf1d7e3ec526ac9eb6cb3",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "645ea1459fd9c62d60f504b827125e49ccfb8d6112c32412e4b179b4bb131966",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/rear_fsai_wheel.uasset": "1655c4e662d2f54c82e7e158d6715bffe1bcedf6183ba876bae6941964c2ad20",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/rear_fsai_wheel.uexp": "88f52aac1df152ed544fb78df487b7b43984b65e73a6be2c38a23d619321086b"
     },
-    "tag": "testing-23"
+    "tag": "testing-26"
   }
 }
