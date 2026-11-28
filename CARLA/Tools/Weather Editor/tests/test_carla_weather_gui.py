@@ -54,8 +54,37 @@ class FakeWorld:
     def get_snapshot(self):
         return SimpleNamespace(timestamp=SimpleNamespace(elapsed_seconds=self.elapsed))
 
+    def get_blueprint_library(self):
+        return SimpleNamespace(filter=lambda _pattern: [])
+
 
 class WeatherLogicTests(unittest.TestCase):
+    def test_rolling_grip_updates_and_restores_without_rebuilding_physics(self):
+        world = FakeWorld()
+        blueprint, trigger, actors, hero = (Mock() for _ in range(4))
+        world.get_blueprint_library = lambda: SimpleNamespace(filter=lambda _pattern: [blueprint])
+        world.get_actors = lambda: actors
+        actors.filter.return_value = []
+        wheels = [SimpleNamespace(tire_friction=1.0) for _ in range(4)]
+        hero.get_physics_control.return_value = SimpleNamespace(wheels=wheels)
+
+        def overlap(_timeout):
+            value = next(float(value) for (key, value), _ in blueprint.set_attribute.call_args_list
+                         if key == "friction")
+            for wheel in wheels:
+                wheel.tire_friction = value
+
+        world.try_spawn_actor = Mock(return_value=trigger)
+        world.wait_for_tick = overlap
+        grip = WeatherGrip(world, hero)
+        flooded = SimpleNamespace(wetness=100, precipitation_deposits=100)
+        dry = SimpleNamespace(wetness=0, precipitation_deposits=0)
+        self.assertEqual(grip.update(flooded, 30), 0.65)
+        trigger.destroy.assert_called_once()
+        blueprint.set_attribute.reset_mock()
+        self.assertEqual(grip.update(dry, 30), 1.0)
+        hero.apply_physics_control.assert_not_called()
+
     def test_rain_never_rebuilds_physx_while_moving_or_spinning(self):
         world = FakeWorld()
         world.get_actors = Mock()

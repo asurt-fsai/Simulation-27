@@ -2,6 +2,9 @@
 
 import math
 
+FRICTION_TRIGGER = "static.trigger.friction"
+TRIGGER_HALF_EXTENT_CM = 400.0
+
 
 def dry_grip_multiplier(tire_c):
     # Generic rubber response around an operating band. CARLA's map materials
@@ -41,28 +44,71 @@ class WeatherGrip:
             and self.hero.get_control().throttle <= 0.05
         )
 
-    def update(self, weather, tire_c):
-        multiplier = grip_multiplier(weather, tire_c)
-        dry = weather.wetness == 0.0 and weather.precipitation_deposits == 0.0
-        # Applying wheel physics rebuilds the PhysX wheel state. Limit small
-        # intermediate updates, but always restore the exact temperature-
-        # adjusted dry baseline when the last film of water disappears.
-        if multiplier == self.multiplier or (not dry and abs(multiplier - self.multiplier) < 0.019):
-            self.rest_since = None
-            return None
+    def apply_live(self, actors, target):
+        # CARLA's friction trigger changes the tire config without rebuilding
+        # the vehicle. Its uniform value is suitable for the stock ADS-DV.
+        if len(target) != 4 or not all(math.isclose(value, target[0], rel_tol=1e-5) for value in target):
+            return False
+        blueprints = self.world.get_blueprint_library().filter(FRICTION_TRIGGER)
+        if not blueprints:
+            return False
+        transform = self.hero.get_transform()
+        clearance = math.sqrt(3.0) * TRIGGER_HALF_EXTENT_CM / 100 + 2.0
+        if any(actor.id != self.hero.id and actor.get_location().distance(transform.location) < clearance
+               for actor in actors.filter("vehicle.*")):
+            return False
+        blueprint = blueprints[0]
+        blueprint.set_attribute("friction", str(target[0]))
+        for axis in "xyz":
+            blueprint.set_attribute(f"extent_{axis}", str(TRIGGER_HALF_EXTENT_CM))
+        trigger = self.world.try_spawn_actor(blueprint, transform)
+        if trigger is None:
+            return False
+        try:
+            # Wait for the overlap to write the scales on the server. Ending
+            # the transient trigger unregisters its delegate without an exit.
+            for _ in range(3):
+                self.world.wait_for_tick(2.0)
+                wheels = self.hero.get_physics_control().wheels
+                if len(wheels) == 4 and all(math.isclose(wheel.tire_friction, value, rel_tol=1e-5)
+                                           for wheel, value in zip(wheels, target)):
+                    return True
+            return False
+        finally:
+            trigger.destroy()
+
+    def apply_at_rest(self, physics, target):
         # Rebuilding PhysX during a collision can replace the contact state
-        # mid-impulse. Wait for the car to settle before changing its wheels.
+        # mid-impulse. This path preserves individually configured tire scales.
         if not self.settled():
             self.rest_since = None
-            return None
+            return False
         now = self.world.get_snapshot().timestamp.elapsed_seconds
         if self.rest_since is None or now < self.rest_since:
             self.rest_since = now
         if now - self.rest_since < 0.25:
+            return False
+        wheels = physics.wheels
+        for wheel, value in zip(wheels, target):
+            wheel.tire_friction = value
+        physics.wheels = wheels
+        if not self.settled():
+            self.rest_since = None
+            return False
+        self.hero.apply_physics_control(physics)
+        return True
+
+    def update(self, weather, tire_c):
+        multiplier = grip_multiplier(weather, tire_c)
+        dry = weather.wetness == 0.0 and weather.precipitation_deposits == 0.0
+        if multiplier == self.multiplier or (not dry and abs(multiplier - self.multiplier) < 0.019):
+            self.rest_since = None
             return None
         # The existing manual ROS service and map-specific friction zones
         # also write the wheel values. Leave them in control while present.
-        if self.world.get_actors().filter("static.trigger.friction"):
+        actors = self.world.get_actors()
+        if actors.filter(FRICTION_TRIGGER):
+            self.rest_since = None
             return None
 
         physics = self.hero.get_physics_control()
@@ -74,15 +120,10 @@ class WeatherGrip:
                 not math.isclose(a, b, rel_tol=1e-5, abs_tol=1e-6)
                 for a, b in zip(current, self.last_friction)):
             self.dry_friction = current
-        for wheel, dry in zip(wheels, self.dry_friction):
-            wheel.tire_friction = dry * multiplier
-        physics.wheels = wheels
-
-        if not self.settled():
-            self.rest_since = None
+        target = tuple(value * multiplier for value in self.dry_friction)
+        if not (self.apply_live(actors, target) or self.apply_at_rest(physics, target)):
             return None
-        self.hero.apply_physics_control(physics)
-        self.last_friction = tuple(wheel.tire_friction for wheel in wheels)
+        self.last_friction = target
         self.multiplier = multiplier
         self.rest_since = None
         return multiplier

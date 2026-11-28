@@ -429,16 +429,15 @@ class ModuleSettings:
             self.status.set(f"The build is available. Executable selection cancelled. See {log}")
             return
         binary, folder = executables[key]
-        fields = github_modules.inferred_fields(key.split("/", 1)[0], folder)
-        if name:
-            fields.update({key: value for key, value in existing.items() if value or key == "arguments"})
-        elif fields["id"] in self.names:
+        fields = {field: existing.get(field, "") for field in self.fields} if name else (
+            github_modules.inferred_fields(key.split("/", 1)[0], folder))
+        if not name and fields["id"] in self.names:
             original = fields["id"]
             index = 2
             while f"{original}_{index}" in self.names:
                 index += 1
             fields["id"] = f"{original}_{index}"
-        if fields.get("group", "").casefold() == "control" and not existing.get("drive_topic"):
+        if not name and fields.get("group", "").casefold() == "control":
             fields["drive_topic"] = fields.get("drive_topic") or "/drive"
             if not fields.get("arguments"):
                 fields["arguments"] = "--ros-args -p use_sim_time:=true"
