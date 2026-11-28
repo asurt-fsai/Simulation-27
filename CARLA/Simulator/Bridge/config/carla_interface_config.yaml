@@ -182,30 +182,33 @@ vehicle:
     # Enable PhysX sweep-based wheel collision (more realistic, slower)
     use_sweep_wheel_collision: true
 
+    # FlatAsphalt and Silverstone asphalt report a dry road factor of 0.70.
+    # A tire scale of 1 / 0.70 gives an effective dry coefficient of 1.0 there.
+    # Road materials and weather still affect the contact grip.
     wheels:
       - position: "FL"                 # front-left
-        tire_friction: 1.0
+        tire_friction: 1.42857143
         damping_rate: 0.006            # supplemental wheel rotational damping
         max_steer_angle: 30.0          # degrees
         radius: 25.83684               # Toyo 225/45R13 rolling radius, 616 rev/km
         max_brake_torque: 300.0       # N*m
         max_handbrake_torque: 500.0   # N*m
       - position: "FR"                 # front-right
-        tire_friction: 1.0
+        tire_friction: 1.42857143
         damping_rate: 0.006
         max_steer_angle: 30.0
         radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RL"                 # rear-left
-        tire_friction: 1.0
+        tire_friction: 1.42857143
         damping_rate: 0.006
         max_steer_angle: 0.0
         radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RR"                 # rear-right
-        tire_friction: 1.0
+        tire_friction: 1.42857143
         damping_rate: 0.006
         max_steer_angle: 0.0
         radius: 25.83684

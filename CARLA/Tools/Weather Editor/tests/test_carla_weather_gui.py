@@ -70,7 +70,7 @@ class WeatherLogicTests(unittest.TestCase):
         wheels = [SimpleNamespace(tire_friction=0.7) for _ in range(4)]
         hero.get_physics_control.return_value = SimpleNamespace(wheels=wheels)
         grip = WeatherGrip(world, hero)
-        rain = SimpleNamespace(wetness=80, precipitation_deposits=30)
+        rain = SimpleNamespace(wetness=100, precipitation_deposits=100)
         dry = SimpleNamespace(wetness=0, precipitation_deposits=0)
         grip.update(rain, 30)
         hero.get_velocity.return_value = zero
@@ -95,6 +95,17 @@ class WeatherLogicTests(unittest.TestCase):
         world.elapsed = 3.0
         self.assertIsNone(grip.update(rain, 30))
         self.assertEqual(hero.apply_physics_control.call_count, 2)
+
+    def test_standing_water_reduces_grip_as_water_accumulates(self):
+        weather = SimpleNamespace(wetness=100, precipitation_deposits=0)
+        film_grip = grip_multiplier(weather, 30)
+        weather.precipitation_deposits = 50
+        partial_grip = grip_multiplier(weather, 30)
+        weather.precipitation_deposits = 100
+        self.assertEqual(film_grip, 0.72)
+        self.assertGreater(film_grip, partial_grip)
+        self.assertGreater(partial_grip, 0.65)
+        self.assertEqual(grip_multiplier(weather, 30), 0.65)
 
     def test_fields_unique(self):
         self.assertEqual(len(gui.CONTROLS), len(gui.BY_NAME))

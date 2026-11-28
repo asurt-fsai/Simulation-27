@@ -14,7 +14,9 @@ def dry_grip_multiplier(tire_c):
 def grip_multiplier(weather, tire_c=30.0):
     wetness = max(0.0, min(1.0, weather.wetness / 100.0))
     deposits = max(0.0, min(1.0, weather.precipitation_deposits / 100.0))
-    return round((1.0 - 0.40 * max(wetness, deposits) - 0.10 * deposits)
+    # On calibrated asphalt, a full water film gives μ=0.72 and adding
+    # maximum standing water reduces it further to μ=0.65 at reference temperature.
+    return round((1.0 - 0.28 * max(wetness, deposits) - 0.07 * deposits)
                  * dry_grip_multiplier(tire_c), 2)
 
 
