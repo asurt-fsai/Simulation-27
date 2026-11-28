@@ -23,7 +23,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from tf2_ros import StaticTransformBroadcaster
 
 from .clock_alignment import ClockOffsetCalibrator
-from .scan import decode_carla_lidar, RevolutionAccumulator
+from .scan import BankFrameAssembler, RevolutionAccumulator, decode_carla_lidar
 from .ultra_puck import beam_banks, rotate_to_sensor
 from .weather import WeatherReturns
 
@@ -127,11 +127,10 @@ class VelodyneSimNode(Node):
         self.queue = []
         self.sensors = []
         self.sensor_ids = []
-        self.pending = {}
-        self.last_frame = -1
         self.banks = (beam_banks() if self.p["model"] == "vlp32c" else
                       ((0.0, tuple(np.linspace(self.p["lower_fov_deg"],
                                                 self.p["upper_fov_deg"], self.p["channels"]))),))
+        self.frames = BankFrameAssembler(len(self.banks))
         self.destroyed = False
         self.segments_received = 0
         self.scans_received = 0
@@ -143,6 +142,7 @@ class VelodyneSimNode(Node):
         self.last_report_scans = 0
         self.last_report_segments = 0
         self.last_report_published = 0
+        self.last_report_dropped_frames = 0
         self.tf_broadcaster = StaticTransformBroadcaster(self) if self.p["publish_tf"] else None
         if self.tf_broadcaster:
             self.publish_mount_tf()
@@ -269,21 +269,11 @@ class VelodyneSimNode(Node):
             if self.banks[bank][0]:
                 rotate_to_sensor(points, self.banks[bank][0])
             with self.lock:
-                frame = measurement.frame
-                if frame <= self.last_frame:
-                    return
-                parts = self.pending.setdefault(frame, {})
-                parts[bank] = points
-                if len(parts) != len(self.banks):
-                    if len(self.pending) > 4:
-                        del self.pending[min(self.pending)]
-                    return
-                self.last_frame = frame
-                self.pending = {key: value for key, value in self.pending.items() if key > frame}
-                self.segments_received += 1
-                points = np.concatenate([parts[index] for index in range(len(self.banks))])
-                result = self.accumulator.add(measurement.timestamp, points)
-                if result is not None:
+                for stamp, sector in self.frames.add(measurement.frame, measurement.timestamp, bank, points):
+                    self.segments_received += 1
+                    result = self.accumulator.add(stamp, sector)
+                    if result is None:
+                        continue
                     self.scans_received += 1
                     # A slow ROS consumer must not accumulate stale scans.
                     if len(self.queue) >= 2:
@@ -305,30 +295,31 @@ class VelodyneSimNode(Node):
         if self.clock_offset is None:
             return
         with self.lock:
-            if not self.queue:
-                return
-            scan_stamp, cloud_points = self.queue.pop(-1)
-            self.scans_dropped += len(self.queue)
-            self.queue.clear()
-        stamp = ros_stamp(scan_stamp + self.clock_offset)
-        cloud_points = self.weather_returns.apply(cloud_points, scan_stamp)
-        self.publisher.publish(to_cloud(cloud_points, stamp, self.p["frame_id"]))
-        self.scans_published += 1
-        self.points_last = len(cloud_points)
+            ready, self.queue = self.queue, []
+        for scan_stamp, cloud_points in ready:
+            stamp = ros_stamp(scan_stamp + self.clock_offset)
+            cloud_points = self.weather_returns.apply(cloud_points, scan_stamp)
+            self.publisher.publish(to_cloud(cloud_points, stamp, self.p["frame_id"]))
+            self.scans_published += 1
+            self.points_last = len(cloud_points)
 
     def report(self):
         now = time.monotonic()
         interval = max(now - self.last_report, 0.001)
+        dropped_frames = self.frames.dropped_frames
         self.get_logger().info(
             f"Velodyne: segments={(self.segments_received-self.last_report_segments)/interval:.1f}Hz, "
             f"revolutions={(self.scans_received-self.last_report_scans)/interval:.1f}Hz, "
             f"ROS={(self.scans_published-self.last_report_published)/interval:.1f}Hz, "
             f"last_points={self.points_last}, dropped={self.scans_dropped}, "
+            f"incomplete_frames={dropped_frames - self.last_report_dropped_frames}, "
+            f"late_banks={self.frames.late_banks}, "
             f"late_segments={self.accumulator.out_of_order}")
         self.last_report = now
         self.last_report_segments = self.segments_received
         self.last_report_scans = self.scans_received
         self.last_report_published = self.scans_published
+        self.last_report_dropped_frames = dropped_frames
 
     def cleanup(self):
         if self.destroyed:

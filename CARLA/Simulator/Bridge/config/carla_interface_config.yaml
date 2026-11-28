@@ -119,7 +119,7 @@ vehicle:
     clutch_strength: 100000.0
 
     # Fixed ratio from transmission output shaft to wheels
-    final_ratio: 1.0
+    final_ratio: 3.5
 
     # Forward gear table.  Each entry: ratio, down_ratio, up_ratio.
     # down_ratio / up_ratio are fractions of max_rpm for auto-shift.
@@ -128,13 +128,9 @@ vehicle:
       - { ratio: 1.00, down_ratio: 0.00, up_ratio: 0.00 }   # 1st
 
   # Drive Mode
-  # CARLA does not have a single "drive mode" property.  Drive mode is
-  # implemented by assigning near-zero tire_friction to the unpowered axle.
-  #   FWD → rear  wheels: tire_friction ≈ 0.1
-  #   RWD → front wheels: tire_friction ≈ 0.1
-  #   AWD → all four wheels equal (uses physics.wheels values as-is)
-  # vehicle.py reads this field and auto-adjusts wheel friction accordingly.
-  drive_mode: "AWD"     # "FWD" | "RWD" | "AWD"
+  # The cooked FSAI chassis has a physical open rear differential.
+  # NATIVE uses that axle and keeps the configured grip on all four wheels.
+  drive_mode: "NATIVE"
 
   # Engine & Physics
   physics:
@@ -144,16 +140,17 @@ vehicle:
     # in the production launcher rather than the mismatched C++ LibCarla.
     apply_in_bridge: false
 
-    mass: 240.0              # kg
-    drag_coefficient: 0.426     # aerodynamic Cd
+    # 2026 IMechE HiL model: 279 kg body, four 5.3 kg carriers, four 6.2 kg wheels.
+    mass: 325.0              # kg
+    drag_coefficient: 0.467  # aerodynamic Cd from the reference model
 
     override_center_of_mass: true
-    # CARLA centre-of-mass offset in metres. A 16.3 mm leftward offset
-    # balances the simulated wheel loads on FlatAsphalt with neutral steering.
-    center_of_mass: { x: 0.0, y: -0.0163, z: 0.0 }
+    # PhysX offset from the asset's measured COM to the IMechE reference
+    # CG, aligned with the axles using the published tire rolling radius.
+    center_of_mass: { x: -0.019435, y: -0.016385, z: -0.140778 }
 
     # Maximum engine RPM
-    max_rpm: 1700.00          # peak engine RPM
+    max_rpm: 4000.0          # Saietta 119R-68 maximum motor RPM
     moi: 0.01                  # engine moment of inertia (kg*m^2)
 
     damping_rate_full_throttle:                   0.15
@@ -162,13 +159,21 @@ vehicle:
     damping_rate_zero_throttle_clutch_engaged:    0.5
     damping_rate_zero_throttle_clutch_disengaged: 0.5
 
+    # IMechE HiL map, with the collinear 2800 RPM knot removed for PhysX.
+    # Higher-RPM torque is scaled to keep interpolated shaft power under the
+    # published 5 kW electrical ceiling. Actual motor efficiency is unknown.
     torque_curve:
-      - [0.0,   300.0]
-      - [738.5, 900.0]
-      - [1700.0, 300.0]
+      - [0.0,    55.7]
+      - [1050.0, 42.857143]
+      - [1400.0, 32.065859]
+      - [1750.0, 26.721549]
+      - [2100.0, 22.713317]
+      - [2450.0, 13.360774]
+      - [3150.0,  2.672155]
+      - [4000.0,  0.093525]
 
     # Steering limit curve: [[speed_kmh, max_steer_fraction], ...]
-    # At 0 km/h → full steering (1.0); at 120 km/h → 30 % of max.
+    # Full calibrated steering range across the speed band.
     steering_curve:
       - [0.0,   1.0]
       - [60.0,  1.0]
@@ -181,29 +186,29 @@ vehicle:
       - position: "FL"                 # front-left
         tire_friction: 1.0
         damping_rate: 1.0
-        max_steer_angle: 16.0          # degrees
-        radius: 25.0                   # centimetres
+        max_steer_angle: 30.0          # degrees
+        radius: 25.83684               # Toyo 225/45R13 rolling radius, 616 rev/km
         max_brake_torque: 300.0       # N*m
         max_handbrake_torque: 500.0   # N*m
       - position: "FR"                 # front-right
         tire_friction: 1.0
         damping_rate: 1.0
-        max_steer_angle: 16.0
-        radius: 25.0
+        max_steer_angle: 30.0
+        radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RL"                 # rear-left
         tire_friction: 1.0
         damping_rate: 1.0
         max_steer_angle: 0.0
-        radius: 25.0
+        radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
       - position: "RR"                 # rear-right
         tire_friction: 1.0
         damping_rate: 1.0
         max_steer_angle: 0.0
-        radius: 25.0
+        radius: 25.83684
         max_brake_torque: 300.0
         max_handbrake_torque: 500.0
 
@@ -652,18 +657,17 @@ control:
     max_integral: 1.0
     max_output: 1.0
 
-  # RPM value that maps to full throttle (1.0) in CARLA.
-  #   throttle = |velocity_rpm| / max_rpm    (clamped to [0, 1])
-  max_rpm: 1700.00
+  # Motor RPM ceiling. Wheel-speed targets use the separate vehicle speed cap.
+  max_rpm: 4000.0
 
   # Max steering angle (degrees) that maps to full steer (±1.0) in CARLA.
   #   carla_steer = -steering_angle_deg / max_steer_deg   (+ left → − right)
   # Only used by vehicle_interface mode — ackermann_drive sends the commanded
   # angle to CARLA's native controller directly in radians, unclamped here.
-  max_steer_deg: 16.0
+  max_steer_deg: 30.0
   # Speed cap (km/h) — applies to both modes (ackermann_drive clamps the
   # commanded speed before handing it to CARLA's native controller).
-  max_velocity_kmh: 100.0
+  max_velocity_kmh: 108.0     # 30 m/s command ceiling
 
   # Standstill hold (vehicle_interface only)
   # A P-only speed PID cannot hold a stop: with a zero setpoint and the vehicle
@@ -698,7 +702,7 @@ ros2:
     feedback_speed:            "feedback/speed"
     # Steering echo:  /sim/feedback/steering_angle    std_msgs/Float32   (degrees)
     feedback_steering_angle:   "feedback/steering_angle"
-    # 4-wheel joints: /sim/feedback/steering_angles   sensor_msgs/JointState
+    # 4-wheel joints: /sim/feedback/steering_angles   sensor_msgs/JointState (radians)
     feedback_steering_angles:  "feedback/steering_angles"
     # Motors feedback: /sim/feedback/motors           std_msgs/String (JSON)
     feedback_motors:           "feedback/motors"

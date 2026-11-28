@@ -815,8 +815,9 @@ void CarlaROS2Backend::publish_steering_angles(double steer_deg) {
   // the cameras.
   js.header.stamp = epoch_to_stamp(sim_now_epoch());
   js.name = {"wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"};
-  js.position = {static_cast<double>(steer_FL), static_cast<double>(steer_FR),
-                 static_cast<double>(steer_RL), static_cast<double>(steer_RR)};
+  const double to_rad = M_PI / 180.0;
+  js.position = {steer_FL * to_rad, steer_FR * to_rad,
+                 steer_RL * to_rad, steer_RR * to_rad};
   js.velocity = {0, 0, 0, 0};
   js.effort = {0, 0, 0, 0};
   steer_angles_pub_->publish(js);
@@ -1413,7 +1414,8 @@ void CarlaROS2Backend::publish_vehicle_feedback() {
     sensor_msgs::msg::JointState js;
     js.header.stamp = epoch_to_stamp(telem_epoch);  // frame-exact, see above
     js.name = {"wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"};
-    js.position = {sFL, sFR, sRL, sRR};
+    const double to_rad = M_PI / 180.0;
+    js.position = {sFL * to_rad, sFR * to_rad, sRL * to_rad, sRR * to_rad};
     js.velocity = {0, 0, 0, 0};
     js.effort = {0, 0, 0, 0};
     steer_angles_pub_->publish(js);

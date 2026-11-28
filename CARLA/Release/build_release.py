@@ -43,6 +43,9 @@ PYTHON_ADAPTERS = {
 }
 DRIVING_SOURCE = Path("CARLA/Simulator/Bridge/src/ros_apps/carla_telemetry/carla_telemetry/manual_control.py")
 BRIDGE = Path("Simulation/CARLA/Bridge/Carla_ASU_Bridge")
+BRIDGE_CONFIG = Path("CARLA/Simulator/Bridge/config/carla_interface_config.yaml")
+BRIDGE_FEEDBACK = Path("CARLA/Simulator/Bridge/src/ros_apps/carla_telemetry_cpp/src/ros2_backend.cpp")
+BRIDGE_EXECUTABLE = BRIDGE / "install/carla_telemetry_cpp/lib/carla_telemetry_cpp/carla_telemetry_node"
 DRIVING_INSTALL = BRIDGE / "install/carla_telemetry/lib/python3.10/site-packages/carla_telemetry/manual_control.py"
 ADAPTERS = Path("Adapters/CARLA")
 PERCEPTION = Path("Simulation/Systems/Perception")
@@ -363,6 +366,7 @@ def build_stack(args, output, workspace):
     for folder in ("config", "scripts", "src"):
         bridge = "Simulation/CARLA/Bridge/Carla_ASU_Bridge"
         copy(source / bridge / folder, stack / bridge / folder)
+    copy(REPOSITORY / BRIDGE_CONFIG, stack / BRIDGE / "config" / BRIDGE_CONFIG.name)
     for folder in OVERLAYS:
         copy_overlay(source / folder / "install", stack / folder / "install")
     for package in PYTHON_ADAPTERS:

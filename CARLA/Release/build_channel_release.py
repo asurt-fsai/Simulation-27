@@ -26,7 +26,22 @@ def startup_checks(archive, names):
         return hashes
 
 
-def copy_changed_files(reference, overlay):
+def pin_compatible_cooked_runtimes(manifest, pin):
+    if not pin.is_file():
+        return
+    runtime = json.loads(pin.read_text())
+    baseline = manifest["runtime"]
+    if runtime.keys() != baseline.keys():
+        raise ValueError("A compatible cook must provide both Windows and Ubuntu runtimes.")
+    for platform, item in runtime.items():
+        if any(item[key] != baseline[platform][key] for key in ("file", "shipping_sha256")):
+            raise ValueError(f"The {platform} cook does not match the released simulator build.")
+        if not re.fullmatch(r"testing-\d+|v\d+\.\d+\.\d+-flat", item["tag"]):
+            raise ValueError(f"The {platform} cook must reference a published channel asset.")
+    manifest["runtime"] = runtime
+
+
+def copy_changed_files(reference, overlay, bridge_binary=None):
     changes = subprocess.check_output(
         ["git", "diff", "--no-renames", "--name-status", "-z", reference, "HEAD"],
         cwd=builder.REPOSITORY, text=True).split("\0")
@@ -36,6 +51,13 @@ def copy_changed_files(reference, overlay):
             continue
         if path.parts == builder.DRIVING_SOURCE.parts and status in ("A", "M"):
             builder.copy_driving_window(overlay)
+            continue
+        if path.parts == builder.BRIDGE_CONFIG.parts and status in ("A", "M"):
+            builder.copy(builder.REPOSITORY / path, overlay / builder.BRIDGE / "config" / path.name)
+            continue
+        if path.parts == builder.BRIDGE_FEEDBACK.parts and status == "M" and bridge_binary:
+            builder.copy(builder.REPOSITORY / path, overlay / builder.BRIDGE.joinpath(*path.parts[3:]))
+            builder.copy(bridge_binary, overlay / builder.BRIDGE_EXECUTABLE)
             continue
         if path.parts[:2] == ("CARLA", "Modules") and (
                 (len(path.parts) > 5 and path.parts[3] == "Modules" and path.parts[4] == "LegacyFS26"
@@ -49,7 +71,7 @@ def copy_changed_files(reference, overlay):
                 and status in ("A", "M")):
             package = path.parts[6]
             supported = path.name in ("node.py", "weather.py") or (
-                package == "asurt_velodyne_sim" and path.name == "ultra_puck.py")
+                package == "asurt_velodyne_sim" and path.name in ("scan.py", "ultra_puck.py"))
             if path.parts[7] == package and supported:
                 builder.copy_python_adapter_file(package, path.name, overlay)
                 continue
@@ -76,6 +98,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--asset-directory", type=Path,
                         help="Add verification for startup files from the verified base archives.")
+    parser.add_argument("--bridge-binary", type=Path,
+                        help="Matching Ubuntu bridge rebuilt for steering feedback changes.")
     args = parser.parse_args()
     testing = args.branch == "testing"
     if not re.fullmatch(r"testing-\d+" if testing else r"v\d+\.\d+\.\d+-flat", args.tag):
@@ -84,6 +108,7 @@ def main():
     reference = manifest["tag"]
     if set(manifest.get("runtime", {})) != {"linux", "windows"}:
         raise ValueError("Channel releases require both the Ubuntu and Windows runtimes.")
+    pin_compatible_cooked_runtimes(manifest, builder.HERE / "cooked-runtimes.json")
     if any(manifest["stack_patch"].get(key) != value for key, value in builder.item(args.base_patch).items()):
         raise ValueError("The baseline stack patch failed verification.")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -116,7 +141,7 @@ def main():
     with tempfile.TemporaryDirectory() as temporary:
         overlay = Path(temporary) / "overlay"
         asurt_update.extract(args.base_patch, overlay)
-        copy_changed_files(reference, overlay)
+        copy_changed_files(reference, overlay, args.bridge_binary)
         launchers = builder.REPOSITORY / "CARLA/Simulator/Launchers"
         builder.adapt_launchers(launchers, overlay)
         builder.stage_fs26(overlay)
@@ -134,6 +159,9 @@ def main():
                 f"{launch}/windows-server.ps1", f"{launch}/process_ownership.py",
                 "tools/RViz/modules.conf", "retired-modules.json", "libexec/asurt-fs26/control_pair",
                 "libexec/asurt-fs26/classical_goal"))
+    if args.bridge_binary:
+        binary = builder.BRIDGE_EXECUTABLE.as_posix()
+        manifest["stack_patch"]["startup_files"].update(startup_checks(patch, (binary,)))
     (args.output / "asurt-release.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

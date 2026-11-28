@@ -5,10 +5,36 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from asurt_velodyne_sim.scan import RevolutionAccumulator, decode_carla_lidar
+from asurt_velodyne_sim.scan import BankFrameAssembler, RevolutionAccumulator, decode_carla_lidar
 
 
 class VelodyneScanTests(unittest.TestCase):
+    def test_delayed_bank_preserves_both_complete_sectors_in_frame_order(self):
+        frames = BankFrameAssembler(2)
+        first = np.array([[1, 2, 3, .5]], dtype=np.float32)
+        second = np.array([[4, 5, 6, .6]], dtype=np.float32)
+        self.assertEqual(frames.add(60, 2.0, 0, first), [])
+        self.assertEqual(frames.add(61, 2.033, 0, second), [])
+        # Banks with zero returns are still valid deliveries.
+        self.assertEqual(frames.add(61, 2.033, 1, second[:0]), [])
+        ready = frames.add(60, 2.0, 1, second)
+        self.assertEqual([stamp for stamp, _ in ready], [2.0, 2.033])
+        np.testing.assert_array_equal(ready[0][1], np.concatenate((first, second)))
+        np.testing.assert_array_equal(ready[1][1], second)
+        self.assertEqual(frames.dropped_frames, 0)
+
+    def test_missing_bank_expires_and_cannot_replay_a_sector(self):
+        frames = BankFrameAssembler(2, max_lag_frames=2)
+        points = np.zeros((1, 4), dtype=np.float32)
+        self.assertEqual(frames.add(60, 2.0, 0, points), [])
+        self.assertEqual(frames.add(61, 2.033, 0, points), [])
+        self.assertEqual(frames.add(61, 2.033, 1, points), [])
+        ready = frames.add(62, 2.066, 0, points)
+        self.assertEqual([stamp for stamp, _ in ready], [2.033])
+        self.assertEqual(frames.dropped_frames, 1)
+        self.assertEqual(frames.add(60, 2.0, 1, points), [])
+        self.assertEqual(frames.late_banks, 1)
+
     def test_raw_carla_coordinates_become_ros_flu_and_keep_intensity(self):
         raw = np.array([[3.0, 2.0, -0.5, 0.25],
                         [8.0, -1.0, 1.2, 0.9]], dtype="<f4")

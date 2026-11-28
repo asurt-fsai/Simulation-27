@@ -35,10 +35,15 @@ jobs:
           PY
           python3 -m unittest discover -s CARLA/Release
           tag="testing-$GITHUB_RUN_NUMBER"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isDraft,targetCommitish >"$out/existing.json" 2>/dev/null; then
+            if python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); sys.exit(r["isDraft"] or r["targetCommitish"] != sys.argv[2])' "$out/existing.json" "$GITHUB_SHA"; then
+              exit 0
+            fi
+          fi
           python3 CARLA/Release/build_channel_release.py --branch testing --tag "$tag" --output "$out" \
             --base-manifest "$base/asurt-release.json" --base-patch "$base/ASURT-Editable-Workspace.tar.gz"
           printf '%s\n' "Testing build from commit $GITHUB_SHA." \
-            "Uses the same FlatAsphalt runtimes and Silverstone Split map pack as [Release](https://github.com/$GITHUB_REPOSITORY/releases/tag/$stable)." >"$out/notes.md"
+            "The release manifest records the Windows and Ubuntu runtime builds for this update. The Silverstone Split map pack matches Release." >"$out/notes.md"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" --json isDraft >"$out/release-state.json" 2>/dev/null; then
             if [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["isDraft"])' "$out/release-state.json") == False ]]; then
               exit 0

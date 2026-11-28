@@ -18,6 +18,40 @@ def decode_carla_lidar(raw_data):
     return xyz_i
 
 
+class BankFrameAssembler:
+    """Join a frame's banks in order, allowing a bounded callback delay."""
+
+    def __init__(self, bank_count, max_lag_frames=4):
+        self.bank_count = bank_count
+        self.max_lag_frames = max_lag_frames
+        self.pending = {}
+        self.last_frame = -1
+        self.dropped_frames = 0
+        self.late_banks = 0
+
+    def add(self, frame, timestamp, bank, points):
+        if frame <= self.last_frame:
+            self.late_banks += 1
+            return []
+
+        _, parts = self.pending.setdefault(frame, (timestamp, {}))
+        parts.setdefault(bank, points)
+        newest = max(self.pending)
+        ready = []
+        while self.pending:
+            oldest = min(self.pending)
+            stamp, parts = self.pending[oldest]
+            if len(parts) == self.bank_count:
+                ready.append((stamp, np.concatenate([parts[i] for i in range(self.bank_count)])))
+            elif newest - oldest >= self.max_lag_frames:
+                self.dropped_frames += 1
+            else:
+                break
+            del self.pending[oldest]
+            self.last_frame = oldest
+        return ready
+
+
 class RevolutionAccumulator:
     """Group simulated CARLA tick segments over approximately one rotation.
 

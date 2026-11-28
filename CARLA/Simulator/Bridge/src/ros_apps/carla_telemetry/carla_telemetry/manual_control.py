@@ -480,6 +480,9 @@ class KeyboardControl(object):
         self._force_manual_client = self._ros_node.create_client(SetBool, full_srv_name)
 
         if isinstance(world.player, carla.Vehicle):
+            self._max_steer_rad = math.radians(max(
+                wheel.max_steer_angle for wheel in world.player.get_physics_control().wheels
+            ))
             self._control = carla.VehicleControl()
             self._ackermann_control = carla.VehicleAckermannControl()
             if hasattr(self._control, 'steering_mode'):
@@ -770,7 +773,7 @@ class KeyboardControl(object):
             if not self._ackermann_enabled:
                 self._control.brake = 0
 
-        steer_increment = 5e-4 * milliseconds
+        steer_increment = milliseconds / 1500.0
         if keys[K_LEFT] or keys[K_a]:
             if self._steer_cache > 0:
                 self._steer_cache = 0
@@ -783,12 +786,12 @@ class KeyboardControl(object):
                 self._steer_cache += steer_increment
         else:
             self._steer_cache = 0.0
-        self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
+        self._steer_cache = min(1.0, max(-1.0, self._steer_cache))
         if not self._ackermann_enabled:
-            self._control.steer = round(self._steer_cache, 1)
+            self._control.steer = self._steer_cache
             self._control.hand_brake = keys[K_SPACE]
         else:
-            self._ackermann_control.steer = round(self._steer_cache, 1)
+            self._ackermann_control.steer = self._steer_cache * self._max_steer_rad
 
     def _parse_walker_keys(self, keys, milliseconds, world):
         self._control.speed = 0.0

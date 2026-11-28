@@ -1,0 +1,44 @@
+{
+  "windows": {
+    "file": "ASURT-FlatAsphalt-Windows-x64.tar.gz",
+    "sha256": "f7a680fc381d37f7b3cd00c24e6bc71dca34fd40f7b369da114d3acafcdb8cc2",
+    "bytes": 154217107,
+    "shipping_sha256": "68be23510e1a5c8d942a6058656e3d204ad5f233631492749948132df71150e1",
+    "startup_files": {
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/FlatAsphalt.umap": "fab13c1896e4b6ecc1c1b1374b8e3d787727df5b4ba008f2dabc2fec2b7a4a4e",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/FlatAsphalt.uexp": "9d263849805d57946a6e83bc2852b517cc2acaf9cb44ca790d2282a111baf860",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/OpenDrive/FlatAsphalt.xodr": "9758f3243d2a35f74380e47c1593852244c285a113b7ca554cbb781dcac7a8be",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/M_FlatAsphalt.uasset": "7769c52c3014218e9295ae4b994756303c3801a18f753f5ad1df358306548ba4",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/M_FlatAsphalt.uexp": "9658f20cdd0f59dd835802f5b9d771f7955385cac09eff4aced6e9b2c848203e",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uasset": "d16f5e1e357e36cdb79fa63412490b1bc289ef9c53c6da9dabfeb18172e40746",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uexp": "560ad004be0d2c463c77cdbae5c45b126051f5d839dc8eee5faa0f7f679d006b",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.ubulk": "6a190e0874595b197ad1f29f93d9b2c6b0834f6a14e4678f05c1c26397052fd7",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "a54f21bfc2f492a08ec3ee469532a5007d1542f1ea59bcb0683a44e6ace5b722",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "f096a2bd0213b4aea4b81ae0e9dfd90f33c636c2d0e84c3286841baf14c2dc73",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "eb2c590542419305e804360e337fe72fd11fcf334d03cce9433b594036d251eb",
+      "WindowsNoEditor/CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "46a318592df9c6822a95e27468a296872079d6df7bd574c288215f995b03defb"
+    },
+    "tag": "testing-23"
+  },
+  "linux": {
+    "file": "ASURT-FlatAsphalt-Ubuntu-22.04-x64.tar.gz",
+    "sha256": "092088d7e857c68a4fbae14dde8dd13c31a72c4b9f9514879c08eba52a3e21b3",
+    "bytes": 164180928,
+    "shipping_sha256": "55945001eb3cec7f2281b966d42ef364f4580c9c9b243ad8f2bc687e0ffc8b9a",
+    "startup_files": {
+      "CarlaUE4/Content/Carla/Maps/FlatAsphalt.umap": "fab13c1896e4b6ecc1c1b1374b8e3d787727df5b4ba008f2dabc2fec2b7a4a4e",
+      "CarlaUE4/Content/Carla/Maps/FlatAsphalt.uexp": "9d263849805d57946a6e83bc2852b517cc2acaf9cb44ca790d2282a111baf860",
+      "CarlaUE4/Content/Carla/Maps/OpenDrive/FlatAsphalt.xodr": "9758f3243d2a35f74380e47c1593852244c285a113b7ca554cbb781dcac7a8be",
+      "CarlaUE4/Content/Carla/Maps/M_FlatAsphalt.uasset": "591f302b9d6d567fac258297b151808955264546445907e63fb0801bb6720a5d",
+      "CarlaUE4/Content/Carla/Maps/M_FlatAsphalt.uexp": "99e32b47251e7fdba3983a6af541fe9f7db401f5d05773d97fbdbacd02a44f4b",
+      "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uasset": "d16f5e1e357e36cdb79fa63412490b1bc289ef9c53c6da9dabfeb18172e40746",
+      "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.uexp": "560ad004be0d2c463c77cdbae5c45b126051f5d839dc8eee5faa0f7f679d006b",
+      "CarlaUE4/Content/Carla/Maps/T_ASURT_WetAsphaltPattern.ubulk": "6a190e0874595b197ad1f29f93d9b2c6b0834f6a14e4678f05c1c26397052fd7",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uasset": "a54f21bfc2f492a08ec3ee469532a5007d1542f1ea59bcb0683a44e6ace5b722",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/fasi_asu.uexp": "f096a2bd0213b4aea4b81ae0e9dfd90f33c636c2d0e84c3286841baf14c2dc73",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uasset": "eb2c590542419305e804360e337fe72fd11fcf334d03cce9433b594036d251eb",
+      "CarlaUE4/Content/Carla/Blueprints/Vehicles/fs-ai/front_fsai_wheel.uexp": "46a318592df9c6822a95e27468a296872079d6df7bd574c288215f995b03defb"
+    },
+    "tag": "testing-23"
+  }
+}
