@@ -361,7 +361,8 @@ def build_stack(args, output, workspace):
     stack.mkdir()
     for folder in MODULES:
         copy(source / folder, stack / folder)
-    for tool in ("ROS Bags", "Control Center/control_center.py", "RViz/ROS_TOPICS.md"):
+    for tool in ("ROS Bags", "Control Center/control_center.py", "Control Center/module_settings.py",
+                 "Control Center/github_modules.py", "RViz/module_control.py", "RViz/ROS_TOPICS.md"):
         copy(HERE.parent / "Tools" / tool, stack / "tools" / tool)
     copy(HERE.parent / "Tools/MCP", stack / "tools/MCP")
     copy(HERE.parent / "Tools/MCP", stack / "libexec/asurt-mcp")

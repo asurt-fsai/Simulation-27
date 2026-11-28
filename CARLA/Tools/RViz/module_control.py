@@ -45,6 +45,16 @@ class Module:
     arguments: tuple = ()
     revision: int = 0
     retired: bool = False
+    bundled_id: str = ""
+    drive_topic: str = ""
+
+    @property
+    def stock_id(self):
+        return self.bundled_id or self.name
+
+    @property
+    def drives_vehicle(self):
+        return bool(self.drive_topic) or self.stock_id in DRIVE_CONTROLLERS
 
     @property
     def dependencies(self):
@@ -52,9 +62,12 @@ class Module:
 
     def command(self):
         if not self.local:
-            return ["bash", str(self.script)]
+            return ["bash", str(self.script), *self.arguments]
+        arguments = self.arguments
+        if self.drive_topic and self.drive_topic != "/drive":
+            arguments += ("--ros-args", "-r", f"{self.drive_topic}:=/drive")
         return ["bash", str(HERE / "module-entry.sh"), self.setup, self.binary,
-                str(self.script or ""), *self.arguments]
+                str(self.script or ""), *arguments]
 
 
 def shipped_modules(*, include_retired=False):
@@ -122,34 +135,63 @@ def definitions(sources=None, *, validate=False):
     shipped = {m.name: m for m in shipped_modules(include_retired=True)}
     modules = shipped.copy()
     hidden = {name for name, module in shipped.items() if module.retired}
+    aliases = {}
     for name, settings in sources.items():
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or name in RESERVED or not isinstance(settings, dict):
             raise ValueError(f"Invalid module ID: {name}")
+        original = settings.get("bundled_id")
+        if original is not None:
+            if (not isinstance(original, str) or original not in shipped or name in shipped
+                    or original in sources or original in aliases):
+                raise ValueError(f"Invalid bundled module alias: {name}")
+            aliases[original] = name
+            modules.pop(original)
+            hidden.discard(original)
+    for name, settings in sources.items():
         if settings.get("hidden") is True:
             if name not in shipped:
                 raise ValueError(f"Unknown bundled module: {name}")
             hidden.add(name)
             continue
-        binary = local_path(settings["binary"], "executable", validate)
-        if validate and not os.access(binary, os.X_OK):
-            raise ValueError(f"File is not executable: {binary}")
+        base = shipped.get(settings.get("bundled_id", name))
+        override = settings.get("binary")
+        if override:
+            binary = local_path(override, "executable", validate)
+            if validate and not os.access(binary, os.X_OK):
+                raise ValueError(f"File is not executable: {binary}")
+        elif base:
+            binary = base.binary
+        else:
+            raise ValueError("Choose a local executable for the custom module.")
         setup = settings.get("setup", "")
         setup = local_path(setup, "ROS setup script", validate) if setup else ""
-        if name in shipped:
-            modules[name] = replace(shipped[name], binary=binary, setup=setup, local=True,
-                                    revision=settings.get("revision", 0))
-            hidden.discard(name)
-            continue
-        label, group, topic = (settings[key].strip() for key in ("label", "group", "topic"))
-        depends = tuple(value.strip() for value in settings.get("dependencies", "").split(",") if value.strip())
-        if not label or not group or not re.fullmatch(r"/[a-zA-Z0-9_/]+", topic):
-            raise ValueError("Custom modules require a label, group, and absolute ROS topic.")
-        arguments = settings.get("arguments", [])
+        edited = settings.get("edited", False) or base is None
+        if edited:
+            label, group, topic = (settings[key].strip() for key in ("label", "group", "topic"))
+            depends = tuple(value.strip() for value in settings.get("dependencies", "").split(",") if value.strip())
+        else:
+            label, group, topic, depends = base.label, base.group, base.topic, base.dependencies
+        drive_topic = settings.get("drive_topic", "").strip() or ("/drive" if override and topic == "/drive" else "")
+        if drive_topic and (not override or not re.fullmatch(r"/[a-zA-Z0-9_/]+", drive_topic)):
+            raise ValueError("The drive output requires a local executable and an absolute ROS topic.")
+        if not label or not group or (topic and not re.fullmatch(r"/[a-zA-Z0-9_/]+", topic)):
+            raise ValueError("Modules need a name, a group, and an absolute ROS topic when specified.")
+        if not topic and not drive_topic:
+            raise ValueError("Enter the module's ROS topic or its controller command output.")
+        arguments = settings.get("arguments", []) if edited or settings.get("github") else []
         if not isinstance(arguments, list) or not all(isinstance(arg, str) for arg in arguments):
             raise ValueError("Module arguments must be a list of strings.")
-        modules[name] = Module(name, binary, None, topic, ",".join(depends) or "-",
-                               group, label, False, setup, True, tuple(arguments),
-                               settings.get("revision", 0))
+        script = base.script if base and not settings.get("github") else None
+        modules[name] = Module(name, binary, script, topic, ",".join(depends) or "-",
+                               group, label, base.default_enabled if base else False,
+                               setup, bool(override), tuple(arguments), settings.get("revision", 0),
+                               bundled_id=base.name if base and name != base.name else "",
+                               drive_topic=drive_topic)
+        hidden.discard(name)
+    for name, module in modules.items():
+        mapped = tuple(aliases.get(dependency, dependency) for dependency in module.dependencies)
+        if mapped != module.dependencies:
+            modules[name] = replace(module, dependency=",".join(mapped))
     dependencies = [dependency for module in modules.values() if module.local
                     for dependency in module.dependencies]
     while dependencies:
@@ -179,7 +221,8 @@ def definitions(sources=None, *, validate=False):
         visit(name)
     active = [module for module in order if module.name not in hidden]
     for field in ("topic", "binary"):
-        values = [getattr(module, field) for module in active]
+        values = [value for module in active if (value := getattr(module, field))
+                  and not (field == "topic" and value == "/drive" and module.drives_vehicle)]
         if len(set(values)) != len(values):
             raise ValueError(f"Each active module needs a unique {field}.")
     return active
@@ -189,10 +232,10 @@ def autonomous_planners(*, include_explicit=False):
     entries = definitions()
     topics = {
         module.topic: module.label
-        for module in entries if module.group.casefold() in {"pathplanning", "path planning", "planning"}
-        and (module.name not in MANUAL_PLANNERS or (include_explicit and module.name == "planning_goal_pose"))
+        for module in entries if module.topic and module.group.casefold() in {"pathplanning", "path planning", "planning"}
+        and (module.stock_id not in MANUAL_PLANNERS or (include_explicit and module.stock_id == "planning_goal_pose"))
     }
-    if include_explicit and any(module.name == "planning_deep_learning" for module in entries):
+    if include_explicit and any(module.stock_id == "planning_deep_learning" for module in entries):
         topics["/planning/deep_learning/raw_path"] = "Deep Learning (raw LSTM)"
     return topics
 
@@ -223,7 +266,7 @@ def save_autonomous_planner(topic):
             path.unlink(missing_ok=True)
 
 
-def save_module_sources(sources, *, expected=None):
+def save_module_sources(sources, *, expected=None, rename=None):
     CONFIG.mkdir(parents=True, exist_ok=True)
     with STATE_LOCK.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -237,23 +280,40 @@ def save_module_sources(sources, *, expected=None):
                 target.write("\n")
                 target.flush()
                 os.fsync(target.fileno())
-            os.replace(temporary, SOURCES)
+            previous_switches = saved_overrides() if rename else {}
+            switches = previous_switches.copy()
+            if rename:
+                old, new = rename
+                switches.pop(new, None)
+                if old in switches:
+                    switches[new] = switches.pop(old)
+            if switches != previous_switches:
+                write_switches(switches)
+            try:
+                os.replace(temporary, SOURCES)
+            except OSError:
+                if switches != previous_switches:
+                    write_switches(previous_switches)
+                raise
         finally:
             Path(temporary).unlink(missing_ok=True)
 
 
 def select_developer_build(name, install):
     existing = module_sources()
+    stock_id = existing.get(name, {}).get("bundled_id", name)
     bundled = next((module for module in shipped_modules(include_retired=True)
-                    if module.name == name and (not module.retired or existing.get(name, {}).get("binary"))), None)
+                    if module.name == stock_id and (not module.retired or existing.get(name, {}).get("binary"))), None)
     if bundled is None:
         raise ValueError(f"Unknown bundled module: {name}")
     package, executable = Path(bundled.binary).parts[-2:]
     sources = existing.copy()
-    sources[name] = {
+    sources[name] = dict(existing.get(name, {}), **{
         "binary": str(install / package / "lib" / package / executable),
         "setup": str(install / "local_setup.bash"),
-    }
+        "revision": time.time_ns(),
+    })
+    sources[name].pop("hidden", None)
     save_module_sources(sources, expected=existing)
 
 
@@ -274,22 +334,26 @@ def module_plan(entries=None, overrides=None):
     entries = definitions() if entries is None else entries
     overrides = saved_overrides() if overrides is None else overrides
     desired = {module.name: overrides.get(module.name, module.default_enabled) for module in entries}
-    fake = next((name for name in FAKE_PROVIDERS if desired.get(name)), None)
-    controller = next((name for name in DRIVE_CONTROLLERS if desired.get(name)), None)
+    ids = {module.stock_id: module.name for module in entries}
+    fake = next((ids[name] for name in FAKE_PROVIDERS if desired.get(ids.get(name))), None)
+    controllers = [ids[name] for name in DRIVE_CONTROLLERS if name in ids]
+    controllers.extend(module.name for module in entries if module.drive_topic and module.name not in controllers)
+    controller = next((name for name in controllers if desired.get(name)), None)
+    cone_map = ids.get("slam_cone_map")
     if fake:
         entries = [
             replace(module, dependency=",".join(
-                fake if dep == "slam_cone_map" else dep for dep in module.dependencies
+                fake if dep == cone_map else dep for dep in module.dependencies
             ))
-            if "slam_cone_map" in module.dependencies else module
+            if cone_map in module.dependencies else module
             for module in entries
         ]
     effective = {}
     for module in entries:
         effective[module.name] = (
             desired[module.name] and not (fake and module.name != fake
-                                          and module.name in (*FAKE_PROVIDERS, "slam_cone_map"))
-            and not (controller and module.name in DRIVE_CONTROLLERS and module.name != controller)
+                                          and module.stock_id in (*FAKE_PROVIDERS, "slam_cone_map"))
+            and not (controller and module.drives_vehicle and module.name != controller)
             and all(effective[dep] for dep in module.dependencies)
         )
     return entries, desired, effective
@@ -311,23 +375,27 @@ def save_switches(changes):
         fcntl.flock(stream, fcntl.LOCK_EX)
         overrides = saved_overrides()
         overrides.update(changes)
-        for exclusive in (FAKE_PROVIDERS, DRIVE_CONTROLLERS):
+        ids = {module.stock_id: module.name for module in entries}
+        for exclusive in ([ids[name] for name in FAKE_PROVIDERS if name in ids],
+                          [module.name for module in entries if module.drives_vehicle]):
             selected = next((name for name in exclusive if changes.get(name)), None)
             if selected:
                 overrides.update({name: name == selected for name in exclusive if name in names})
-        descriptor, temp = tempfile.mkstemp(prefix=".modules-", dir=CONFIG)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as target:
-                json.dump({"version": 1, "enabled": overrides}, target,
-                          indent=2, sort_keys=True)
-                target.write("\n")
-                target.flush()
-                os.fsync(target.fileno())
-            os.replace(temp, STATE)
-        finally:
-            if os.path.exists(temp):
-                os.unlink(temp)
+        write_switches(overrides)
     return effective_states(entries, overrides)
+
+
+def write_switches(overrides):
+    descriptor, temp = tempfile.mkstemp(prefix=".modules-", dir=CONFIG)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            json.dump({"version": 1, "enabled": overrides}, target, indent=2, sort_keys=True)
+            target.write("\n")
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temp, STATE)
+    finally:
+        Path(temp).unlink(missing_ok=True)
 
 
 def owned_module_group(group, supervisor):
@@ -397,9 +465,9 @@ def live_states(session=None):
         entries, desired, effective = module_plan(entries, saved_overrides(config / "modules.json"))
     else:
         entries, desired, effective = module_plan()
-    fake_label = next((module.label for module in entries if module.name in FAKE_PROVIDERS
+    fake_label = next((module.label for module in entries if module.stock_id in FAKE_PROVIDERS
                        and effective[module.name]), None)
-    controller = next((name for name in DRIVE_CONTROLLERS if desired.get(name)), None)
+    controller = next((module.name for module in entries if module.drives_vehicle and effective[module.name]), None)
     labels = {module.name: module.label for module in entries}
     ready = bool(session and session["phase"] == "ready")
     report = {}
@@ -429,17 +497,17 @@ def live_states(session=None):
         status = ("running" if pids and effective[module.name] else
                   "stopping" if pids else
                   "disabled" if not desired[module.name] else
-                  f"using {fake_label}" if fake_label and module.name in (*FAKE_PROVIDERS, "slam_cone_map")
+                  f"using {fake_label}" if fake_label and module.stock_id in (*FAKE_PROVIDERS, "slam_cone_map")
                   and not effective[module.name] else
-                  f"using {labels[controller]}" if controller and module.name in DRIVE_CONTROLLERS
+                  f"using {labels[controller]}" if controller and module.drives_vehicle
                   and module.name != controller else
                   f"waiting for {', '.join(waiting_for)}" if waiting_for else
                   "simulator offline" if not ready else
                   running.get("error") or "starting")
         path_topic = None
-        if pids and effective[module.name] and module.name in AUTONOMOUS_CONTROLLERS:
+        if pids and effective[module.name] and module.stock_id in AUTONOMOUS_CONTROLLERS:
             try:
-                info = json.loads((Path(session["log"]) / f"{module.name}-readiness.json").read_text())
+                info = json.loads((Path(session["log"]) / f"{module.stock_id}-readiness.json").read_text())
                 if info["pid"] in pids:
                     path_topic = info.get("path_topic")
                     waiting_for = info["waiting_for"]
@@ -453,7 +521,7 @@ def live_states(session=None):
                 pass
         item = {
             "id": module.name, "label": module.label, "group": module.group,
-            "topic": module.topic, "dependency": module.dependency,
+            "topic": module.topic or "/drive", "dependency": module.dependency,
             "source": "Local" if module.local else "Bundled",
             "enabled": desired[module.name], "effective": effective[module.name],
             "pids": pids, "memory_mib": round(ram_kib / 1024, 1),

@@ -105,7 +105,7 @@ See the [LeGO-LOAM topic configuration](../../Modules/SLAM/Modules/LiDARMapping/
 System Manager's **Cancel Goal** publishes the two planner-specific cancel
 topics. Autonomous controllers use the first four planner path topics or the
 primary `nav_msgs/Path` topic of a registered team PathPlanning module. Choose
-the source in **Module Settings → Autonomous Planner**. Both goal-based
+the source in **Module Settings → Sim Settings**. Both goal-based
 planners remain available for the manual-control workflows.
 
 | Controller | Inputs in addition to `/odom` and `/sim/feedback/autonomous_mode` | Outputs in addition to `/drive` |

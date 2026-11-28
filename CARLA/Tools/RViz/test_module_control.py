@@ -12,6 +12,36 @@ import slam_settings
 
 
 class ModuleSwitchTests(unittest.TestCase):
+    def test_bundled_alias_preserves_launcher_and_dependent_switch(self):
+        entries = mod.definitions({"team_lidar": {"bundled_id": "velodyne", "edited": True,
+                                                   "label": "Team LiDAR", "group": "Sensors",
+                                                   "topic": "/velodyne_points"}})
+        by_name = {module.name: module for module in entries}
+        self.assertNotIn("velodyne", by_name)
+        self.assertEqual(by_name["team_lidar"].stock_id, "velodyne")
+        self.assertTrue(by_name["team_lidar"].script.is_file())
+        self.assertEqual(by_name["lidar_cones"].dependencies, ("team_lidar",))
+        _, effective = mod.effective_states(entries, {"team_lidar": False})
+        self.assertFalse(effective["lidar_cones"])
+
+    def test_local_drive_output_is_remapped_and_exclusive(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(mod, "CONFIG", Path(directory)), \
+             mock.patch.object(mod, "STATE", Path(directory) / "modules.json"), \
+             mock.patch.object(mod, "SOURCES", Path(directory) / "module-sources.json"), \
+             mock.patch.object(mod, "STATE_LOCK", Path(directory) / "modules.lock"):
+            binary = Path(directory) / "controller"
+            binary.write_text("#!/bin/sh\n")
+            binary.chmod(0o755)
+            mod.save_module_sources({"team_drive": {"binary": str(binary), "label": "Team drive", "group": "Control",
+                                                    "topic": "", "drive_topic": "/team/commands"}})
+            module = next(entry for entry in mod.definitions() if entry.name == "team_drive")
+            self.assertEqual(module.command()[-3:], ["--ros-args", "-r", "/team/commands:=/drive"])
+            mod.save_switches({"control_fs26_simple": True})
+            _, effective = mod.save_switches({"team_drive": True})
+            self.assertTrue(effective["team_drive"])
+            self.assertFalse(effective["control_fs26_simple"])
+
     def test_defaults_and_dependency_order(self):
         modules = mod.definitions({})
         perception = [m for m in modules if m.group == "Perception"]

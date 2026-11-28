@@ -37,7 +37,7 @@ On native Ubuntu, the installer and launcher check for a working dedicated Vulka
 
 ## Edit a module or tool
 
-Open the **ASURT Workspace** desktop shortcut or **System Manager → Module Settings → Open workspace**.
+Open the **ASURT Workspace** desktop shortcut. In **System Manager → Module Settings**, use **Open selected source** to open a module's workspace folder.
 On Windows the shortcut is inside the **ASURT CARLA** desktop and Start menu folder. The path is
 `~/.local/share/asurt/workspace` in Ubuntu or WSL. Use an editor running in Ubuntu or connected to
 WSL when building a ROS package.
@@ -71,16 +71,12 @@ Tool keys include `track`, `weather`, `trackdraw`, `manager`, `map-packs`, `ros-
 
 - Edit a tool under `tools/` or in `Simulation/CARLA/Launchers/`. Reopen the tool to load the edits.
 - In **Module Settings**, select a module and click **Open selected source**. After editing, click
-  **Build and use workspace source**. The supervisor switches that module and restarts any active
+  **Build**. The supervisor switches that module and restarts any active
   dependent modules. Select **Use bundled build** to switch back.
-- To use a team's separate colcon workspace, select its executable under
-  `install/<package>/lib/<package>/` and its `install/local_setup.bash`, then click
-  **Save local build**. **Add module** registers a custom executable, ROS topic, and optional
-  dependencies. **Remove module** removes the entry from System Manager.
-- Set up a development machine with
-  `sudo apt install python3-colcon-common-extensions build-essential`. LeGO-LOAM also needs the
-  PCL and Boost development packages. The release supplies the compatible ROS interfaces and
-  GTSAM prefix. Changes to a shared ROS message require rebuilding its dependent modules.
+- Choose **Add module** or **Update module**, then choose **Manually** or **GitHub link**. Manual registration accepts an already-built executable under `install/<package>/lib/<package>/` and its `install/local_setup.bash`. Manual updates let you edit the ID, name, group, topics, dependencies, and launch arguments.
+- A GitHub import fetches and builds ROS packages with colcon under **Modules → GitHub**. It uses your configured Git credentials or an existing GitHub CLI session. Review the autofilled fields and choose **Save** to select the local build. Updates compare the Git revisions and preserve the working build if the new one fails. Packages with extra build dependencies require those dependencies on the host.
+- For a controller that publishes `ackermann_msgs/msg/AckermannDriveStamped`, set its **Controller command topic**. System Manager remaps it to `/drive` and keeps one configured drive controller active at a time. Use `/drive` if the node already publishes there.
+- **Sim Settings** contains the FakeMAP and FakeSLAM position-noise controls and the autonomous planner selector. **Remove module** removes the entry from System Manager.
 
 You can also build and select the Classical Planner from Ubuntu:
 
