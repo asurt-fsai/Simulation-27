@@ -145,8 +145,8 @@ vehicle:
     drag_coefficient: 0.467  # aerodynamic Cd from the reference model
 
     override_center_of_mass: true
-    # PhysX offset from the asset's measured COM to the IMechE reference
-    # CG, aligned with the axles using the published tire rolling radius.
+    # PhysX offset from the measured asset COM to the IMechE CG.
+    # Y centers the mass on the wheel track. Z uses the published rolling radius.
     center_of_mass: { x: -0.019435, y: -0.016385, z: -0.140778 }
 
     # Maximum engine RPM

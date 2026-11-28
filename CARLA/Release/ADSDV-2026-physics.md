@@ -6,9 +6,10 @@ This update uses the 2026 reference vehicle as a starting point for CARLA. Measu
 
 | Quantity | Source and treatment |
 | --- | --- |
-| Wheel geometry | The IMechE vehicle sheet specifies a 1.530 m wheelbase and 1.200 m front and rear tracks. The chassis authoring script uses those dimensions as wheel-centre targets. |
+| Wheel geometry | The IMechE vehicle sheet specifies a 1.530 m wheelbase and 1.200 m front and rear tracks. The chassis authoring script uses those dimensions and sets the two wheel centres on each axle to the same height. |
 | Operational vehicle mass | The IMechE HiL model lists a 279 kg body plus four 5.3 kg wheel carriers and four 6.2 kg wheels. The aggregate model mass is 325 kg. The assembled team-car mass is still needed. |
 | CG and inertia | The same nine HiL bodies give a CG 0.76474 m behind the front axle and 0.76526 m ahead of the rear axle, 0.16472 m above the model ground datum. The parallel-axis theorem gives 94.6578 kg·m² for yaw. An in-engine yaw impulse is used to calibrate the CARLA asset's yaw inertia scale. The reference CG is transferred as an offset from the measured CARLA asset COM. |
+| Suspension and load transfer | The wheel classes apply tire forces at the nominal contact plane and use mirrored hub heights. The authoring script converts the HiL spring rates to wheel rates using each axle's motion ratio near zero travel. It linearizes damping using the first compression and rebound points and uses the buffer engagement distances as travel limits. PhysX uses six vehicle substeps on either side of its speed threshold, which gives 5.5 ms steps at the packaged frame interval. The HiL suspension's nonlinear geometry and buffer response still require separate validation. |
 | Differential and powertrain | The Unreal vehicle has an open rear differential. The supplied steering and traction configuration uses the native drivetrain and preserves grip on both axles. The Saietta 119R-68 is modeled with a 55.7 N·m peak, 4,000 RPM ceiling, and a single 3.5:1 reduction. The eight-point torque envelope uses the competition's published ratings and peaks at 4.89 kW of ideal interpolated shaft power. Full-throttle motor damping and supplemental wheel damping are reduced to avoid the sustained 24 km/h plateau produced by the legacy PhysX losses. The measured Sevcon Gen4 DC map, efficiency, coast losses, and regen calibration are unavailable. |
 | Battery | The vehicle sheet identifies a four-module lead-acid pack, 100 Ah, nominal 50 V, operating at 48–52 V, and 100 A continuous / 200 A peak discharge. CARLA uses the power ceiling. Pack sag, current transients, and state-dependent torque limits lack vehicle calibration data. |
 | Tires | The published 225/45R13 84V Toyo R888R listing gives 616 rev/km. That converts to a 0.258368 m effective rolling radius for the simulator. Nominal outside diameter and measured radius at the team's load and pressure are separate quantities. The HiL reference tire is a generated 185/50R13 model, so its stiffness and rolling resistance are unsuitable as Toyo calibration. |
@@ -24,14 +25,15 @@ Source material
 - [IMechE 2026 CAN database](https://github.com/FS-AI/FS-AI_ADS-DV_Documentation/blob/bb8f162/ADS-DV_2026_CAN1.dbc)
 - [IMechE 2026 HiL car file](https://github.com/FS-AI/FS-AI_IMechE_ADS-DV_HiL/blob/1fe77bed411ba621a3187bc2eb9ca13c7d371832/Data/Vehicle/FS-AI_IMechE_ADS-DV_2026_HiL)
 - [IMechE public CAD reference](https://github.com/FS-AI/FS-AI_ADS-DV_CAD/tree/958fdbf336fcc6cbd60535c2e7812d51a977d267)
-- [IMechE HiL rack kinematics](https://github.com/FS-AI/FS-AI_IMechE_ADS-DV_HiL/blob/1fe77bed411ba621a3187bc2eb9ca13c7d371832/Data/Chassis/FS_Autonomous_front.skc)
+- [IMechE HiL front kinematics](https://github.com/FS-AI/FS-AI_IMechE_ADS-DV_HiL/blob/1fe77bed411ba621a3187bc2eb9ca13c7d371832/Data/Chassis/FS_Autonomous_front.skc)
+- [IMechE HiL rear kinematics](https://github.com/FS-AI/FS-AI_IMechE_ADS-DV_HiL/blob/1fe77bed411ba621a3187bc2eb9ca13c7d371832/Data/Chassis/FS_Autonomous_rear.skc)
 - [Toyo R888R dimensions](https://www.toyotires.ca/fr/pneus/proxes-r888r)
 - [Saietta 119R-68 component datasheet](https://faktor.de/out/media/BR-200-119-R-68.pdf)
 
 ## Build and verify
 
-1. Audit a loaded FSAI asset's wheel-bone locations, COM, body mass, and inertia. Run the Unreal authoring script with the audit and the specific published HiL car file. The optional yaw measurement input is the previous asset scale and its measured effective yaw inertia.
-2. Cook the changed chassis and front-wheel assets for WindowsNoEditor and LinuxNoEditor. Repack only those cooked assets into the verified baseline runtimes. Keep the original shipping executables and validate all map pack dependencies.
+1. Audit a loaded FSAI asset's wheel-bone locations, COM, body mass, and inertia. Run the Unreal authoring script with the audit and the published HiL car file in its original `Data/Vehicle` directory, with the axle files in `Data/Chassis`. The optional yaw measurement input is the previous asset scale and its measured effective yaw inertia.
+2. Cook the changed chassis and both wheel class assets for WindowsNoEditor and LinuxNoEditor. Repack the three cooked assets into the verified baseline runtimes. Keep the original shipping executables and validate all map pack dependencies.
 3. Build the stack patch with the matching rebuilt ROS bridge. Supply the bridge executable to the channel packager. Its startup hash is recorded with the packaged physics config and the intended simulator cook.
-4. Run the keyboard timing check, real wheel-angle and ROS feedback sweeps, yaw impulse and longitudinal tests using the new build. Confirm the map and platform on each test. Keep maximum achievable speed and stopping distance tied to the tested conditions.
+4. Run the keyboard timing check, real wheel-angle and ROS feedback sweeps, yaw impulse and longitudinal tests using the new build. Check neutral steering on a level straight and mirror the corner-entry inputs on dry and flooded asphalt on both maps. Confirm the map and platform on each test. Keep maximum achievable speed and stopping distance tied to the tested conditions.
 5. Publish to Testing and verify its runtime and stack hashes. Promote only after review.
