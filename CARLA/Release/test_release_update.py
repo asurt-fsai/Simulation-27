@@ -232,11 +232,14 @@ class ReleaseUpdateTest(unittest.TestCase):
 
     def test_ubuntu_terminal_acknowledgement_uses_clean_desktop_environment(self):
         def opened(command, **options):
-            self.assertEqual(command[:4], ["/usr/bin/gnome-terminal", "--window", "--title=ASURT Update", "--"])
+            self.assertEqual(command[:5], ["/usr/bin/gnome-terminal", "--wait", "--window", "--title=ASURT Update", "--"])
             self.assertEqual(command[-3:-1], ["fake-installer", "--terminal-token"])
             self.assertNotIn("LD_LIBRARY_PATH", options["env"])
             self.assertEqual(options["env"]["DISPLAY"], ":0")
-            command[-1].rename(command[-1].with_name("started"))
+            self.assertIn(f"ASURT_STATE_ROOT={self.state}", command)
+            token = Path(command[-1])
+            self.assertEqual(token.parent.parent, self.state / "log/carla/tools")
+            token.rename(token.with_name("started"))
             return SimpleNamespace(poll=lambda: 0)
 
         with patch.dict("os.environ", {"DISPLAY": ":0", "LD_LIBRARY_PATH": "/asurt/ros/lib"}), \
@@ -249,17 +252,17 @@ class ReleaseUpdateTest(unittest.TestCase):
         tokens = []
 
         def opened(command, **_):
-            token = command[-1]
+            token = Path(command[-1])
             tokens.append(token)
             if len(tokens) == 2:
                 self.assertFalse(tokens[0].exists())
-                self.assertEqual(command[:2], ["/usr/bin/x-terminal-emulator", "-e"])
+                self.assertEqual(command[:4], ["/usr/bin/xterm", "-T", "ASURT Update", "-e"])
                 token.rename(token.with_name("started"))
             return SimpleNamespace(poll=lambda: 0)
 
         with patch("release_update.shutil.which", side_effect=lambda name: "/usr/bin/" + name), \
              patch("release_update.subprocess.Popen", side_effect=opened), \
-             patch("release_update.monotonic", side_effect=iter(range(0, 60, 13))):
+             patch("release_update.monotonic", side_effect=iter(range(0, 90, 21))):
             update.linux_terminal(["fake-installer"], self.state)
         self.assertEqual(len(tokens), 2)
 

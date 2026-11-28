@@ -39,6 +39,77 @@ if [[ "$manifest" == https://* || -z "$manifest" ]]; then
     [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
         { echo "Supply the GitHub repository with --repository OWNER/REPO." >&2; exit 2; }
 fi
+# The Gazebo archive is unrelated to the CARLA stack. Use an installer-local
+# view of APT sources so its key cannot block Ubuntu or ROS package updates.
+stage_apt_sources() {
+    local configuration=$1 destination=$2 source target
+    mkdir -p "$destination/apt-sources"
+    for source in "$configuration/sources.list" "$configuration/sources.list.d/"*.list "$configuration/sources.list.d/"*.sources; do
+        [[ -f "$source" ]] || continue
+        if [[ "$source" == "$configuration/sources.list" ]]; then
+            target="$destination/apt-sources.list"
+        else
+            target="$destination/apt-sources/${source##*/}"
+        fi
+        if [[ "$source" == *.sources ]]; then
+            awk '
+                BEGIN { RS = ""; FS = "\n" }
+                function is_gazebo(uri) {
+                    return uri ~ /^https?:\/\/packages\.osrfoundation\.org\/gazebo\/ubuntu(-[[:alnum:]_-]+)?\/?$/
+                }
+                {
+                    body = ""; changed = 0; uris = ""; in_uris = 0
+                    for (i = 1; i <= NF; ++i) {
+                        line = $i
+                        if (line ~ /^#/) {
+                            body = body line "\n"
+                            continue
+                        }
+                        if (tolower(line) ~ /^uris:[[:space:]]*/) {
+                            in_uris = 1
+                            sub(/^[^:]+:[[:space:]]*/, "", line)
+                        } else if (!in_uris || line !~ /^[[:space:]]/) {
+                            in_uris = 0
+                            body = body line "\n"
+                            continue
+                        }
+                        count = split(line, entries, /[[:space:]]+/)
+                        for (j = 1; j <= count; ++j) {
+                            if (is_gazebo(tolower(entries[j])))
+                                changed = 1
+                            else if (entries[j] != "")
+                                uris = uris " " entries[j]
+                        }
+                    }
+                    if (!changed) printf "%s\n\n", $0
+                    else if (uris != "") printf "URIs:%s\n%s\n", uris, body
+                }' "$source" >"$target"
+        else
+            awk '{
+                if ($0 ~ /^[[:space:]]*deb(-src)?[[:space:]]/) {
+                    uri = $0
+                    sub(/^[[:space:]]*deb(-src)?[[:space:]]+/, "", uri)
+                    sub(/^\[[^]]*\][[:space:]]+/, "", uri)
+                    sub(/[[:space:]].*$/, "", uri)
+                    if (tolower(uri) ~ /^https?:\/\/packages\.osrfoundation\.org\/gazebo\/ubuntu(-[[:alnum:]_-]+)?\/?$/) next
+                }
+                print
+            }' "$source" >"$target"
+        fi
+    done
+    touch "$destination/apt-sources.list"
+}
+
+apt_for_asurt() {
+    stage_apt_sources /etc/apt "$temp"
+    # Keep cached indices for sources omitted from the installer-local view.
+    sudo apt-get -o "Dir::Etc::sourcelist=$temp/apt-sources.list" \
+        -o "Dir::Etc::sourceparts=$temp/apt-sources" -o APT::Get::List-Cleanup=false "$@"
+}
+
+temp=$(mktemp -d)
+trap 'rm -rf -- "$temp"' EXIT
+
 if [[ "$skip_dependencies" == false ]]; then
     source /etc/os-release
     if [[ "$ID" != ubuntu || "$VERSION_ID" != 22.04 || "$(uname -m)" != x86_64 ]]; then
@@ -56,8 +127,8 @@ if [[ "$skip_dependencies" == false ]]; then
         dpkg-query -W -f='${db:Status-Status}' "$name" 2>/dev/null | grep -qx installed || missing+=("$name")
     done
     if ((${#missing[@]})); then
-        sudo apt-get update
-        sudo apt-get install -y "${missing[@]}"
+        apt_for_asurt update
+        apt_for_asurt install -y "${missing[@]}"
     fi
 fi
 
@@ -108,8 +179,6 @@ PY
     fi
 fi
 
-temp=$(mktemp -d)
-trap 'rm -rf -- "$temp"' EXIT
 manifest_source=$manifest
 if [[ -z "$manifest_source" ]]; then
     if ! gh api --hostname github.com user >/dev/null 2>&1; then
@@ -171,8 +240,8 @@ PY
         )
         [[ "$url" == https://github.com/ros-infrastructure/ros-apt-source/releases/download/* ]]
         curl -fsSL --retry 2 "$url" -o "$temp/ros2-apt-source.deb"
-        sudo apt-get install -y "$temp/ros2-apt-source.deb"
-        sudo apt-get update
+        apt_for_asurt install -y "$temp/ros2-apt-source.deb"
+        apt_for_asurt update
     fi
     python3 - "$temp/manifest.json" >"$temp/ubuntu-packages.txt" <<'PY'
 import json
@@ -191,14 +260,16 @@ PY
         if [[ "$with_wsl_runtime" == true && -f "$root/.private-viewer" ]]; then
             packages+=(tigervnc-standalone-server novnc websockify x11-utils openbox)
         fi
+    else
+        packages+=(xterm)
     fi
     missing=()
     for name in "${packages[@]}"; do
         dpkg-query -W -f='${db:Status-Status}' "$name" 2>/dev/null | grep -qx installed || missing+=("$name")
     done
     if ((${#missing[@]})); then
-        sudo apt-get update
-        sudo apt-get install -y "${missing[@]}"
+        apt_for_asurt update
+        apt_for_asurt install -y "${missing[@]}"
     fi
 fi
 if [[ "$platform" == windows && "$with_wsl_runtime" == true && "$skip_dependencies" == false ]]; then

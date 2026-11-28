@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -236,35 +237,56 @@ def windows_terminal(command):
     return [powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
 
 
+def linux_terminals():
+    seen = set()
+    for name, options, shell_command in (
+        ("gnome-terminal", ("--wait", "--window", "--title=ASURT Update", "--"), False),
+        ("xterm", ("-T", "ASURT Update", "-e"), False),
+        ("konsole", ("-e",), False),
+        ("xfce4-terminal", ("--disable-server", "--title=ASURT Update", "--command"), True),
+        ("mate-terminal", ("--disable-factory", "--title=ASURT Update", "--command"), True),
+        ("x-terminal-emulator", ("-e",), False),
+    ):
+        binary = shutil.which(name)
+        if binary and (resolved := os.path.realpath(binary)) not in seen:
+            seen.add(resolved)
+            yield [binary, *options], shell_command
+
+
 def linux_terminal(command, state):
-    terminals = []
-    for name, options in (("gnome-terminal", ("--window", "--title=ASURT Update", "--")),
-                          ("x-terminal-emulator", ("-e",))):
-        if binary := shutil.which(name):
-            terminals.append([binary, *options])
+    terminals = list(linux_terminals())
     if not terminals:
         raise RuntimeError("No desktop terminal is available to run the ASURT installer.")
 
     env = dict(os.environ)
-    for variable in ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "PYTHONHOME", "PYTHONPATH"):
+    for variable in ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "PYTHONHOME", "PYTHONPATH", "GIO_EXTRA_MODULES"):
         env.pop(variable, None)
     log = state / "log/carla/tools/installer-terminal.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    for terminal in terminals:
-        with tempfile.TemporaryDirectory(prefix="asurt-installer-") as directory, log.open("ab") as output:
+    # Terminals backed by a desktop service can have their own /tmp and environment.
+    # Pass the paths explicitly and keep the acknowledgement under the install's state.
+    paths = [f"{key}={env[key]}" for key in ("ASURT_ROOT", "ASURT_WORKSPACE") if key in env]
+    invocation = ["/usr/bin/env", f"ASURT_STATE_ROOT={state}", *paths, *command]
+    for terminal, shell_command in terminals:
+        with tempfile.TemporaryDirectory(prefix="installer-", dir=log.parent) as directory, log.open("ab") as output:
             pending = Path(directory) / "pending"
             started = pending.with_name("started")
             pending.touch()
             output.write(f"Opening the installer with {terminal[0]}\n".encode())
             output.flush()
+            arguments = [*invocation, "--terminal-token", str(pending)]
+            if shell_command:
+                arguments = [shlex.join(arguments)]
             try:
-                process = subprocess.Popen([*terminal, *command, "--terminal-token", pending], env=env,
+                process = subprocess.Popen([*terminal, *arguments], env=env,
                                            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                                            start_new_session=True)
-                deadline = monotonic() + 12
-                while monotonic() < deadline and process.poll() in (None, 0):
+                deadline = monotonic() + 20
+                while monotonic() < deadline:
                     if started.is_file():
                         return
+                    if process.poll() not in (None, 0):
+                        break
                     sleep(.1)
             except OSError as error:
                 output.write(f"{error}\n".encode())
@@ -492,7 +514,7 @@ def main():
     terminal_claimed = not args.terminal_token
     try:
         if args.terminal_token:
-            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            if not sys.stdin.isatty():
                 raise RuntimeError("The installer requires an interactive terminal.")
             args.terminal_token.rename(args.terminal_token.with_name("started"))
             terminal_claimed = True
